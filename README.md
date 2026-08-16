@@ -1,114 +1,70 @@
-<p align="center">
-  <a href="https://primeintellect.ai">
-    <picture>
-      <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/40c36e38-c5bd-4c5a-9cb3-f7b902cd155d">
-      <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/6414bc9b-126b-41ca-9307-9e982430cde8">
-      <img alt="Prime Intellect" src="https://github.com/user-attachments/assets/6414bc9b-126b-41ca-9307-9e982430cde8" width="312" style="max-width: 100%;">
-    </picture>
-  </a>
-</p>
+# Millwright
 
-<h3 align="center">
-Prime Agent: A Self-Improving RLM Agent
-</h3>
+Millwright is a pre-alpha, Prime Agent-derived interactive agent harness being
+prepared for a native Millrace runner mode.
 
-<p align="center">
-  <a href="packages/coding-agent/docs/index.md">Documentation</a> &bull;
-  <a href="https://github.com/PrimeIntellect-ai/verifiers">Verifiers</a> &bull;
-  <a href="https://github.com/PrimeIntellect-ai/prime-rl">PRIME-RL</a> &bull;
-  <a href="https://github.com/badlogic/pi-mono">pi-mono</a>
-</p>
+This repository starts from the complete Prime Agent 0.7.2 source rather than a
+thin wrapper or a package-by-package reimplementation. The goal is to preserve
+Prime's interactive TUI, persistent RLM environment, compaction, extensions,
+and session behavior while adding a bounded headless execution surface that
+Millrace can govern as a stage runner.
 
-<p align="center">
-  <a href="https://github.com/PrimeIntellect-ai/prime-agent/actions/workflows/ci.yml">
-    <img src="https://github.com/PrimeIntellect-ai/prime-agent/actions/workflows/ci.yml/badge.svg" alt="CI" />
-  </a>
-  <a href="https://github.com/PrimeIntellect-ai/prime-agent/actions/workflows/build-binaries.yml">
-    <img src="https://github.com/PrimeIntellect-ai/prime-agent/actions/workflows/build-binaries.yml/badge.svg" alt="Build Binaries" />
-  </a>
-</p>
+> **Status:** Source-baseline work only. Millwright has not been released, the
+> `millwright-agent` npm package has not been published, and the imported
+> runtime still uses Prime Agent's package names and command paths. Runtime
+> rebranding and runner integration require later reviewed milestones.
 
-Prime Agent is an open-source coding and research agent for general and long-running work. It is designed around two core abstractions:
+- Target repository: `github.com/tim-osterhus/millwright`
+- Intended npm distribution: `millwright-agent`
+- Intended executable: `millwright`
 
-- The **[Recursive Language Model (RLM)](https://www.primeintellect.ai/blog/rlm)** treats context as variables (*prompt-as-a-variable*) and tools like recursive subagents as function calls (*programmatic tool /sub-agent calling*) inside a persistent REPL.
-- The **[Continual Harness](https://arxiv.org/abs/2605.09998)** stores supplemental prompts, memories, skill descriptions, and reusable subagent specifications as durable state that Prime Agent can refine through small, evidence-backed updates, local to the session by default.
+## Inspect the baseline
 
-Prime Agent combines a persistent Python control environment with durable harness state, so useful working context and reusable operating patterns can outlive a single chat window.
-
-- **Everything is programmatic:** persistent IPython is the built-in model tool; file operations, shell commands, tool use, subagents, and context management happen through code.
-- **Subagents are built in:** `rlm(...)` spawns real child agents for parallel or background work and returns their results programmatically.
-- **The harness can improve:** `/refine` reviews the current trajectory and can apply small, evidence-backed updates to supplemental harness state. It never rewrites the immutable base system prompt, and recorded snapshots support rollback.
-- **Skills are executable:** skills are importable Python packages, and the built-in skill creator can turn recurring workflows into project or personal skills.
-- **Sessions run in the background:** daemon-backed agents keep running when the terminal disconnects and can be reattached later.
-- **Agents communicate directly:** running agents can exchange messages and orchestrate one another without routing everything through the user.
-- **Long tasks keep moving:** automatic compaction, persistent goals, heartbeats, schedules, autonomous mode, and retained subagents preserve progress across turns and terminal sessions.
-
-## Getting Started
-
-Install the latest stable release on macOS or Linux:
+The current useful action is to build and test the imported source:
 
 ```bash
-curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh | sh
+npm ci --ignore-scripts
+npm run build
+npm test
 ```
 
-The installer downloads a versioned release, verifies its SHA-256 checksum, installs the `prime-agent` command, and can prepare the IPython runtime used by the agent.
+Lifecycle scripts are disabled in the installation step because this baseline
+is being evaluated before publication. Some upstream tests may require platform
+services or provider credentials; the Phase 0 evidence records any excluded
+tests and the reason.
 
-Start Prime Agent from the repository or directory you want it to work in:
+## Intended product boundary
 
-```bash
-cd /path/to/project
-prime-agent
-```
+Millwright is intended to have two operating surfaces:
 
-On first launch, run `/login` to choose a subscription or API-key provider. Prime Agent works in the current directory and can run commands and modify files there. Use a disposable clone, clean worktree, or another checkpoint you can inspect and restore.
+- an interactive TUI that behaves like the full Prime Agent harness;
+- a restricted headless mode that can run one Millrace-dispatched stage and
+  return one bounded result without gaining workflow authority.
 
-> [!WARNING]
-> Prime Agent executes model-generated Python and project commands with your user permissions. Its worker and kernel processes improve lifecycle isolation and recovery; they are **not** a security sandbox. Review changes and use trusted repositories, instructions, skills, and extensions only. Run untrusted code or instructions in an external sandbox or restricted environment.
+Long-lived Python environments are planned to attach through a separately
+versioned workspace-local host. Millwright may use an attached environment, but
+Millrace remains responsible for compiled workflow authority, dispatch,
+terminal legality, and evidence admission.
 
-Useful commands:
+None of that runner or environment integration is implemented in this baseline
+commit. The current repository exists to prove the inherited application can
+support those seams without replacing its agent loop, TUI, or RLM subsystem.
 
-```bash
-prime-agent agents                   # Browse running, idle, and saved sessions
-prime-agent attach <agent>           # Reattach to a running session
-prime-agent --resume [path|id]       # Browse sessions or resume one directly
-prime-agent status                   # Inspect background service state
-prime-agent doctor [--fix]           # Inspect or repair background services
-prime-agent update [--force]         # Update Prime Agent
-prime-agent shutdown [--force]       # Stop every agent, worker, and background service
-```
+## Prime Agent provenance
 
-## Built for Long-Running Work
-Prime Agent is built for long-running work, especially for evaluations in research. These features are available in the TUI, and when run autonomously.
+The initial source snapshot comes from
+[PrimeIntellect-ai/prime-agent](https://github.com/PrimeIntellect-ai/prime-agent)
+release 0.7.2 at declared commit
+`9f9501146e869466acaca66dac49cff857b7b4f9`. It was imported without upstream
+Git history so Millwright remains an independent downstream repository.
 
-- **Continual Harness:** `/refine` can persist focused, reviewable lessons as supplemental prompts, memories, reusable skill descriptions, or subagent specifications, with recorded refinement history. It does not replace packaging and reviewing new executable skills.
-- **Direct agent-to-agent communication:** running agents and retained subagents can discover one another, exchange messages, and steer active work.
-- **Daemon-backed continuity:** active sessions, IPython state, schedules, and subagents keep running when the terminal detaches and can be reattached later.
-- **Heartbeats and schedules:** `/heartbeat`, `rlm_heartbeat`, and `prime-agent schedule` can re-enter a session periodically or at a specific time.
-- **Persistent goals:** `/goal` keeps an objective and its progress active across turns until it is completed, paused, or cleared.
-- **Bounded autonomous mode:** `/autonomous` continues within configured turn, token, and time budgets and can run user-defined quality gates. A passed gate checks only what that gate verifies; reaching a limit does not imply task success.
+See `UPSTREAM.md`, `UPSTREAM.json`, and `THIRD_PARTY_NOTICES.md` for the source,
+license, and modification boundary.
 
-## Documentation
+## Licensing
 
-- [Quickstart](packages/coding-agent/docs/quickstart.md) — install, authenticate, and run a first session
-- [Usage and CLI reference](packages/coding-agent/docs/usage.md) — commands, sessions, autonomous limits, and output modes
-- [Long-running and background agents](packages/coding-agent/docs/long-running-agents.md) — detach and reattach, goals, heartbeats, and schedules
-- [RLM programming model](packages/coding-agent/docs/rlm.md) — persistent IPython, subagents, skills, and the trust model
-- [JSON mode](packages/coding-agent/docs/json.md) and [RPC mode](packages/coding-agent/docs/rpc.md) — headless automation and integrations
-- [Skills](packages/coding-agent/docs/skills.md) — install and create reusable capabilities
-- [Provider setup](packages/coding-agent/docs/providers.md) — subscription and API-key providers
-- [Architecture overview](packages/coding-agent/docs/architecture.md) — daemon, worker, kernel, and persistence boundaries
-- [Development](packages/coding-agent/docs/development.md) — build and run from source
-
-## Contributing
-
-Start with a GitHub Discussion for [general questions](https://github.com/PrimeIntellect-ai/prime-agent/discussions/categories/general), [bug reports](https://github.com/PrimeIntellect-ai/prime-agent/discussions/categories/bug-reports), and [feature requests](https://github.com/PrimeIntellect-ai/prime-agent/discussions/categories/feature-requests). Maintainers promote accepted work into Issues, and pull requests are reviewed from maintainers and vouched contributors.
-
-Read the [contribution guidelines](CONTRIBUTING.md) for the full process. Report security vulnerabilities privately by following the [security policy](SECURITY.md).
-
-## Acknowledgements
-
-Our agent and TUI is built on top of [`pi`](https://github.com/earendil-works/pi). We thank the authors of `pi` for their valuable work.
-
-## License
-
-Prime Agent is fully open source and released under the [MIT License](LICENSE).
+New Millwright-authored work is licensed under Apache License 2.0 in `LICENSE`.
+The imported Prime Agent and Pi-derived source remains under its retained MIT
+terms in `LICENSES/Prime-Agent-MIT.txt`. Package-level license metadata remains
+unchanged during this proof baseline and will be classified before any package
+release.

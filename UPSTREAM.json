@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "project": "Millwright",
+  "upstream": {
+    "repository": "https://github.com/PrimeIntellect-ai/prime-agent",
+    "release": "0.7.2",
+    "declaredCommit": "9f9501146e869466acaca66dac49cff857b7b4f9",
+    "retrieved": "2026-08-14",
+    "importFormat": "source snapshot without Git metadata or history"
+  },
+  "millwright": {
+    "donorCommit": "de71232a2effa9fc1c286e6d7ca1ae68b3fec85e",
+    "donorManifestSha256": "57c34a13979f224052e64cf04e8493d96d25e3552cd9ec8ce614db5b4bb7e698",
+    "baselineCommitAuthority": "Phase 0 repository-bootstrap.json"
+  },
+  "licenses": {
+    "newMillwrightWork": "Apache-2.0",
+    "importedPrimeAndPiDerivedSource": "MIT",
+    "retainedMitText": "LICENSES/Prime-Agent-MIT.txt"
+  },
+  "approvedBaselineRepair": "remove stale ./hooks export and dangling TypeScript aliases"
+}
