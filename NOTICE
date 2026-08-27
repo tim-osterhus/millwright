@@ -6,5 +6,8 @@ source remains subject to the MIT terms reproduced in
 LICENSES/Prime-Agent-MIT.txt. New Millwright-authored modifications are made
 available under Apache License 2.0 unless a file or component states otherwise.
 
+The bundled terminal input implementation also contains OpenTUI-derived work
+subject to the MIT terms reproduced in LICENSES/OpenTUI-MIT.txt.
+
 The upstream source and exact imported revision are recorded in UPSTREAM.md and
-UPSTREAM.json.
+UPSTREAM.json. Release artifacts preserve this notice and THIRD_PARTY_NOTICES.md.

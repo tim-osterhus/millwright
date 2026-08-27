@@ -11,12 +11,17 @@
   "millwright": {
     "donorCommit": "de71232a2effa9fc1c286e6d7ca1ae68b3fec85e",
     "donorManifestSha256": "57c34a13979f224052e64cf04e8493d96d25e3552cd9ec8ce614db5b4bb7e698",
-    "baselineCommitAuthority": "Phase 0 repository-bootstrap.json"
+    "baselineCommitAuthority": "Phase 0 repository-bootstrap.json",
+    "downstreamStrategy": "complete stable source snapshot with a Millwright-owned identity, package, and release overlay"
   },
   "licenses": {
     "newMillwrightWork": "Apache-2.0",
     "importedPrimeAndPiDerivedSource": "MIT",
     "retainedMitText": "LICENSES/Prime-Agent-MIT.txt"
   },
-  "approvedBaselineRepair": "remove stale ./hooks export and dangling TypeScript aliases"
+  "approvedBaselineRepair": "remove stale ./hooks export and dangling TypeScript aliases",
+  "maintenance": {
+    "automaticMerge": false,
+    "refreshMethod": "clean history-free snapshot on a review branch followed by identity, state, package-closure, behavior, license, and release qualification"
+  }
 }

@@ -140,6 +140,9 @@ test("packs one frozen public artifact with closure and deterministic headers", 
 			"package/LICENSES/Prime-Agent-MIT.txt",
 			"package/LICENSES/OpenTUI-MIT.txt",
 		]) assert.ok(files.has(path), `missing ${path}`);
+		assert.match(files.get("package/README.md").toString("utf8"), /^# Millwright$/mu);
+		assert.doesNotMatch(files.get("package/README.md").toString("utf8"), /Prime Agent CLI/u);
+		assert.match(files.get("package/CHANGELOG.md").toString("utf8"), /## 0\.0\.1 - Unreleased/u);
 		for (const name of manifest.bundledDependencies) {
 			assert.ok(files.has(`package/node_modules/${name}/package.json`));
 			assert.ok([...files.keys()].some((path) => path.startsWith(`package/node_modules/${name}/dist/`)));

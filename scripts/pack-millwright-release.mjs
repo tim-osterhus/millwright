@@ -40,7 +40,7 @@ const WORKSPACES = [
 	{ directory: "packages/coding-agent", key: "coding-agent", name: "@earendil-works/pi-coding-agent" },
 	{ directory: "packages/tui", key: "tui", name: "@earendil-works/pi-tui" },
 ];
-const ATTRIBUTION_FILES = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "UPSTREAM.md", "UPSTREAM.json"];
+const ATTRIBUTION_FILES = ["CHANGELOG.md", "LICENSE", "NOTICE", "README.md", "THIRD_PARTY_NOTICES.md", "UPSTREAM.md", "UPSTREAM.json"];
 
 function fail(message) {
 	throw new Error(message);

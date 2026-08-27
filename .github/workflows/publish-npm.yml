@@ -1,0 +1,206 @@
+name: Publish npm
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact-name: ${{ steps.handoff.outputs.name }}
+      artifact-sha256: ${{ steps.handoff.outputs.sha256 }}
+      npm-integrity: ${{ steps.handoff.outputs.integrity }}
+    steps:
+      - name: Check out annotated tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          registry-url: https://registry.npmjs.org
+
+      - name: Pin toolchain and reject non-v0.0.1 tags
+        shell: bash
+        run: |
+          npm install --global npm@10.9.2
+          test "$(node --version)" = "v22.22.0"
+          test "$(npm --version)" = "10.9.2"
+          test "$GITHUB_REF_NAME" = "v0.0.1"
+          test "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = "tag"
+
+      - name: Read frozen release binding
+        id: release
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const r = JSON.parse(fs.readFileSync("RELEASE.json", "utf8"));
+            const fail = (message) => { throw new Error(message); };
+            if (r.schemaVersion !== 1 || r.product !== "millwright-agent" || r.version !== "0.0.1") fail("unexpected release identity");
+            if (r.artifactFile !== "millwright-agent-0.0.1.tgz") fail("unexpected artifact filename");
+            if (r.upstream?.product !== "Prime Agent" || r.upstream?.version !== "0.7.2" || r.upstream?.commit !== "9f9501146e869466acaca66dac49cff857b7b4f9") fail("unexpected upstream provenance");
+            if (!/^[0-9a-f]{40}$/.test(r.sourceCommit)) fail("invalid sourceCommit");
+            const runs = r.qualification?.platformRuns;
+            if (!Array.isArray(runs) || runs.length !== 2) fail("unexpected qualification runs");
+            const ubuntuRuns = runs.filter((x) => x?.platform === "ubuntu" && x?.kind === "github-actions");
+            if (ubuntuRuns.length !== 1) fail("expected exactly one Ubuntu GitHub Actions run");
+            const u = ubuntuRuns[0];
+            if (!/^[1-9][0-9]*$/.test(u.runId)) fail("invalid Ubuntu runId");
+            if (!Number.isSafeInteger(u.runAttempt) || u.runAttempt < 1) fail("invalid Ubuntu runAttempt");
+            if (!/^[0-9a-f]{64}$/.test(u.reportSha256)) fail("invalid Ubuntu reportSha256");
+            if (u.reportFile !== "qualification-report.json") fail("unexpected Ubuntu reportFile");
+            const reportName = `millwright-qualification-ubuntu-${r.sourceCommit}-${u.runId}-${u.runAttempt}`;
+            if (u.reportArtifactName !== reportName) fail("unexpected Ubuntu reportArtifactName");
+            for (const [k, v] of Object.entries({
+              source: r.sourceCommit,
+              run_id: u.runId,
+              run_attempt: String(u.runAttempt),
+              report_name: u.reportArtifactName,
+              report_sha: u.reportSha256,
+            })) fs.appendFileSync(process.env.GITHUB_OUTPUT, `${k}=${v}\n`);
+          '
+
+      - name: Query exact Ubuntu qualification run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.release.outputs.run_id }}
+          RUN_ATTEMPT: ${{ steps.release.outputs.run_attempt }}
+          REPORT_NAME: ${{ steps.release.outputs.report_name }}
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/qualification"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" | \
+            jq --arg repository "$GITHUB_REPOSITORY" --arg artifactName "$REPORT_NAME" \
+            '{repository: $repository, runId: (.id|tostring), runAttempt: .run_attempt, headSha: .head_sha, conclusion: .conclusion, artifactName: $artifactName}' \
+            > "$RUNNER_TEMP/qualification/ubuntu-run.json"
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$REPORT_NAME" \
+            --dir "$RUNNER_TEMP/qualification/report"
+          test "$(find "$RUNNER_TEMP/qualification/report" -type f | wc -l | tr -d ' ')" = "1"
+          test -f "$RUNNER_TEMP/qualification/report/qualification-report.json"
+
+      - name: Rebuild exact source commit in an isolated clone
+        env:
+          SOURCE_COMMIT: ${{ steps.release.outputs.source }}
+        shell: bash
+        run: |
+          git clone --no-hardlinks "$GITHUB_WORKSPACE" "$RUNNER_TEMP/source"
+          git -C "$RUNNER_TEMP/source" checkout --detach "$SOURCE_COMMIT"
+          cd "$RUNNER_TEMP/source"
+          npm ci --ignore-scripts
+          mkdir "$RUNNER_TEMP/rebuilt"
+          npm run pack:release -- --output "$RUNNER_TEMP/rebuilt"
+          node scripts/verify-millwright-package.mjs \
+            "$RUNNER_TEMP/rebuilt/millwright-agent-0.0.1.tgz" \
+            "$SOURCE_COMMIT" \
+            > "$RUNNER_TEMP/rebuilt/package-report.json"
+
+      - name: Verify release manifest, topology, evidence, and rebuilt artifact
+        shell: bash
+        run: |
+          node scripts/verify-millwright-release.mjs \
+            --repo "$GITHUB_WORKSPACE" \
+            --release "$GITHUB_WORKSPACE/RELEASE.json" \
+            --tag "$GITHUB_REF_NAME" \
+            --artifact "$RUNNER_TEMP/rebuilt/millwright-agent-0.0.1.tgz" \
+            --package-report "$RUNNER_TEMP/rebuilt/package-report.json" \
+            --ubuntu-run "$RUNNER_TEMP/qualification/ubuntu-run.json" \
+            --ubuntu-report "$RUNNER_TEMP/qualification/report/qualification-report.json" \
+            > "$RUNNER_TEMP/release-verification.json"
+
+      - name: Record immutable handoff
+        id: handoff
+        env:
+          SOURCE_COMMIT: ${{ steps.release.outputs.source }}
+        shell: bash
+        run: |
+          NAME="millwright-npm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SHA="$(shasum -a 256 "$RUNNER_TEMP/rebuilt/millwright-agent-0.0.1.tgz" | awk '{print $1}')"
+          INTEGRITY="$(node -e 'const fs=require("fs"),c=require("crypto");process.stdout.write(`sha512-${c.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64")}`)' "$RUNNER_TEMP/rebuilt/millwright-agent-0.0.1.tgz")"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "integrity=$INTEGRITY" >> "$GITHUB_OUTPUT"
+          {
+            echo "Source commit: $SOURCE_COMMIT"
+            echo "Artifact SHA-256: $SHA"
+            echo "npm integrity: $INTEGRITY"
+            echo "Handoff artifact: $NAME"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verified npm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.handoff.outputs.name }}
+          path: ${{ runner.temp }}/rebuilt/millwright-agent-0.0.1.tgz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Clean verification roots
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/source" "$RUNNER_TEMP/rebuilt" "$RUNNER_TEMP/qualification"
+          rm -f "$RUNNER_TEMP/release-verification.json"
+
+  publish:
+    needs:
+      - verify
+    runs-on: ubuntu-latest
+    environment: npm-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out immutable release manifest
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node for trusted publishing
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          registry-url: https://registry.npmjs.org
+
+      - name: Download current-run verified artifact only
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.verify.outputs.artifact-name }}
+          path: ${{ runner.temp }}/publish
+
+      - name: Reverify immutable handoff and publish
+        shell: bash
+        run: |
+          npm install --global npm@11.5.1
+          test "$(npm --version)" = "11.5.1"
+          test "$(find "$RUNNER_TEMP/publish" -type f | wc -l | tr -d ' ')" = "1"
+          TARBALL="$RUNNER_TEMP/publish/millwright-agent-0.0.1.tgz"
+          test -f "$TARBALL"
+          SHA="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
+          INTEGRITY="$(node -e 'const fs=require("fs"),c=require("crypto");process.stdout.write(`sha512-${c.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64")}`)' "$TARBALL")"
+          test "$SHA" = "${{ needs.verify.outputs.artifact-sha256 }}"
+          test "$INTEGRITY" = "${{ needs.verify.outputs.npm-integrity }}"
+          node -e '
+            const fs = require("fs");
+            const r = JSON.parse(fs.readFileSync("RELEASE.json", "utf8"));
+            if (r.artifactSha256 !== process.argv[1] || r.npmIntegrity !== process.argv[2]) process.exit(1);
+          ' "$SHA" "$INTEGRITY"
+          npm publish "$TARBALL" --access public --provenance
+
+      - name: Clean publish root
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/publish"

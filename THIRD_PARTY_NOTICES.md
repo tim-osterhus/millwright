@@ -14,6 +14,12 @@ The unmodified license text is preserved in
 metadata remain in the imported package manifests and lockfile. This inventory
 is not legal advice.
 
+The single `millwright-agent` distribution contains the private internal
+packages `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, and
+`@earendil-works/pi-tui`. They are bundled implementation details, not separate
+Millwright distributions. Ordinary third-party runtime dependencies remain npm
+dependencies with their own package metadata and license declarations.
+
 ## OpenTUI-derived terminal input handling
 
 The bundled TUI contains code adapted from OpenTUI:

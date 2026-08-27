@@ -13,11 +13,29 @@ history.
 | Millwright donor commit | `de71232a2effa9fc1c286e6d7ca1ae68b3fec85e` |
 | Donor manifest SHA-256 | `57c34a13979f224052e64cf04e8493d96d25e3552cd9ec8ce614db5b4bb7e698` |
 
-The first Millwright commit preserves the donor bytes exactly, excluding only
-`.DS_Store`. The second commit establishes the repository's legal and
-provenance boundary, removes inherited GitHub automation, and repairs one
-stale `./hooks` package declaration whose referenced upstream module does not
-exist. It does not implement the Millrace runner mode or rebrand the runtime.
+The selected Phase 0 strategy keeps the complete stable Prime Agent source as
+an independent downstream rather than importing individual upstream packages.
+The donor commit preserves the snapshot bytes exactly, excluding only
+`.DS_Store`. The following baseline commit establishes the legal/provenance
+boundary, removes inherited GitHub automation, and repairs one stale `./hooks`
+package declaration whose referenced upstream module does not exist.
+
+Subsequent `0.0.1` work applies Millwright identity and state isolation without
+replacing the inherited agent loop, TUI, session model, or persistent Python
+kernel. The public artifact bundles the three private internal runtime packages
+behind `millwright-agent`; those package keys are not separate public products.
 
 The actual second-commit identifier is recorded outside that self-referential
 commit in the Phase 0 `repository-bootstrap.json` evidence.
+
+## Refresh policy
+
+Upstream refreshes use a new clean, history-free Prime Agent snapshot on a
+review branch. Each refresh records the source release and commit, classifies
+identity and state-path changes, re-proves package closure and behavior, audits
+the complete license chain, and completes release qualification. Millwright
+does not automatically merge upstream history or mechanically overwrite the
+downstream source.
+
+Native Millrace runner mode, an external persistent-environment backend,
+provider-native compaction, and inert proposal handling remain future work.

@@ -1,0 +1,158 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-latest
+    env:
+      CI: "1"
+      LC_ALL: C
+      TZ: UTC
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          registry-url: https://registry.npmjs.org
+
+      - name: Pin and verify toolchain
+        shell: bash
+        run: |
+          npm install --global npm@10.9.2
+          test "$(node --version)" = "v22.22.0"
+          test "$(npm --version)" = "10.9.2"
+
+      - name: Frozen install
+        run: npm ci --ignore-scripts
+
+      - name: Non-mutating checks
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check:ci 2>&1 | tee "$RUNNER_TEMP/checks.log"
+
+      - name: Type check
+        shell: bash
+        run: |
+          set -o pipefail
+          npx tsgo --noEmit 2>&1 | tee "$RUNNER_TEMP/types.log"
+
+      - name: Release build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build:release 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Full tests and release contracts
+        shell: bash
+        env:
+          HOME: ${{ runner.temp }}/millwright-home
+          DEEPSEEK_API_KEY: ""
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME"
+          {
+            npm run test --workspace=packages/tui
+            npm run test --workspace=packages/ai
+            npm run test --workspace=packages/agent
+            npm run test:ci --workspace=packages/coding-agent -- --shard=1/3
+            npm run test:ci --workspace=packages/coding-agent -- --shard=2/3
+            npm run test:ci --workspace=packages/coding-agent -- --shard=3/3
+            npm run test:process --workspace=packages/coding-agent
+            npm run test:kernel --workspace=packages/coding-agent
+            node --test scripts/tests/verify-millwright-release.test.mjs scripts/tests/workflow-contract.test.mjs
+            MILLWRIGHT_OFFLINE=1 npx vitest --run \
+              packages/coding-agent/test/product-identity.test.ts \
+              packages/coding-agent/test/refinement.test.ts \
+              packages/coding-agent/test/daemon-mode.test.ts
+          } 2>&1 | tee "$RUNNER_TEMP/tests.log"
+
+      - name: Pack one clean artifact
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir "$RUNNER_TEMP/millwright-pack"
+          npm run pack:release -- --output "$RUNNER_TEMP/millwright-pack" 2>&1 | tee "$RUNNER_TEMP/pack.log"
+
+      - name: Verify package and isolated install smoke
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/verify-millwright-package.mjs \
+            "$RUNNER_TEMP/millwright-pack/millwright-agent-0.0.1.tgz" \
+            "$GITHUB_SHA" \
+            | tee "$RUNNER_TEMP/millwright-pack/package-report.json" \
+            | tee "$RUNNER_TEMP/installSmoke.log"
+
+      - name: Verify clean source
+        shell: bash
+        run: |
+          set -o pipefail
+          git diff --exit-code 2>&1 | tee "$RUNNER_TEMP/cleanSource.log"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Create bounded Ubuntu qualification report
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          node scripts/write-millwright-qualification-report.mjs \
+            --output "$RUNNER_TEMP/qualification-report.json" \
+            --pack-report "$RUNNER_TEMP/millwright-pack/pack-report.json" \
+            --package-report "$RUNNER_TEMP/millwright-pack/package-report.json" \
+            --logs-dir "$RUNNER_TEMP" \
+            | tee "$RUNNER_TEMP/qualification-summary.json"
+          REPORT_SHA="$(shasum -a 256 "$RUNNER_TEMP/qualification-report.json" | awk '{print $1}')"
+          echo "Qualification report SHA-256: $REPORT_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Ubuntu qualification report
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: millwright-qualification-ubuntu-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/qualification-report.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload bounded failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: millwright-ci-failure-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Clean task-owned roots
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/millwright-pack" "$RUNNER_TEMP/millwright-home"
+          rm -f \
+            "$RUNNER_TEMP/build.log" \
+            "$RUNNER_TEMP/checks.log" \
+            "$RUNNER_TEMP/cleanSource.log" \
+            "$RUNNER_TEMP/installSmoke.log" \
+            "$RUNNER_TEMP/pack.log" \
+            "$RUNNER_TEMP/qualification-report.json" \
+            "$RUNNER_TEMP/qualification-summary.json" \
+            "$RUNNER_TEMP/tests.log" \
+            "$RUNNER_TEMP/types.log"
