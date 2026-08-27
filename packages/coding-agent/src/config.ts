@@ -5,6 +5,7 @@ import {
 	appendFileSync,
 	constants,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
 	realpathSync,
@@ -13,7 +14,7 @@ import {
 	statSync,
 } from "fs";
 import { homedir } from "os";
-import { basename, dirname, join, resolve, sep, win32 } from "path";
+import { basename, dirname, isAbsolute, join, resolve, sep, win32 } from "path";
 import { fileURLToPath } from "url";
 import { shouldUseWindowsShell } from "./utils/child-process.js";
 
@@ -23,6 +24,7 @@ import { shouldUseWindowsShell } from "./utils/child-process.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const PACKAGE_DIR_ENV = "MILLWRIGHT_PACKAGE_DIR";
 
 /**
  * Detect if we're running as a Bun compiled binary.
@@ -34,7 +36,7 @@ export const isBunBinary =
 /** Detect if Bun is the runtime (compiled binary or bun run) */
 export const isBunRuntime = !!process.versions.bun;
 
-export const SELF_UPDATE_INTERACTIVE_CHILD_ENV = "PRIME_AGENT_INTERACTIVE_SELF_UPDATE";
+export const SELF_UPDATE_INTERACTIVE_CHILD_ENV = "MILLWRIGHT_INTERACTIVE_SELF_UPDATE";
 export const SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE = 75;
 
 // =============================================================================
@@ -327,7 +329,7 @@ export function getSelfUpdateUnavailableInstruction(
 ): string {
 	const method = detectInstallMethod();
 	if (method === "bun-binary") {
-		return `Download from: https://github.com/PrimeIntellect-ai/prime-agent/releases/latest`;
+		return `Download from: https://github.com/tim-osterhus/millwright/releases/latest`;
 	}
 	if (method === "homebrew") {
 		return `Update with: brew upgrade ${APP_NAME}`;
@@ -363,7 +365,7 @@ export function getUpdateInstruction(packageName: string): string {
  */
 export function getPackageDir(): string {
 	// Allow override via environment variable (useful for Nix/Guix where store paths tokenize poorly)
-	const envDir = process.env.PI_PACKAGE_DIR;
+	const envDir = process.env[PACKAGE_DIR_ENV];
 	if (envDir) {
 		if (envDir === "~") return homedir();
 		if (envDir.startsWith("~/")) return homedir() + envDir.slice(1);
@@ -489,6 +491,8 @@ interface PackageJson {
 	version?: string;
 	piConfig?: {
 		name?: string;
+		displayName?: string;
+		packageName?: string;
 		configDir?: string;
 	};
 }
@@ -502,12 +506,18 @@ const envPrefix =
 		.replace(/[^A-Z0-9]+/g, "_")
 		.replace(/^_+|_+$/g, "") || "PI";
 export const PACKAGE_NAME: string = pkg.name || "@earendil-works/pi-coding-agent";
-export const APP_NAME: string = piConfigName || "pi";
-export const APP_TITLE: string = piConfigName ? APP_NAME : "π";
-export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".prime/agent";
+export const PRODUCT_NAME: string = pkg.piConfig?.displayName || "Millwright";
+export const PRODUCT_PACKAGE_NAME: string = pkg.piConfig?.packageName || "millwright-agent";
+export const PRODUCT_COMMAND_NAME: string = piConfigName || "millwright";
+export const PRODUCT_REPOSITORY = "github.com/tim-osterhus/millwright";
+/** Ordinary Millwright startup must not inspect the upstream Prime CLI config. */
+export const USE_PRIME_CLI_CONFIG_BY_DEFAULT = false;
+export const APP_NAME: string = PRODUCT_COMMAND_NAME;
+export const APP_TITLE: string = PRODUCT_NAME;
+export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".millwright";
 export const VERSION: string = pkg.version || "0.0.0";
 
-// e.g., PI_CODING_AGENT_DIR or PRIME_AGENT_CODING_AGENT_DIR
+export const ENV_PACKAGE_DIR = PACKAGE_DIR_ENV;
 export const ENV_AGENT_DIR = `${envPrefix}_CODING_AGENT_DIR`;
 export const ENV_SESSION_DIR = `${envPrefix}_SESSION_DIR`;
 export const ENV_LEGACY_SESSION_DIR = `${envPrefix}_CODING_AGENT_SESSION_DIR`;
@@ -518,25 +528,70 @@ export function expandTildePath(path: string): string {
 	return path;
 }
 
-const DEFAULT_SHARE_VIEWER_URL = "https://pi.dev/session/";
+const LEGACY_STATE_SEGMENTS = new Set([".prime", ".millrace-cli"]);
+
+function pathEntryExists(path: string): boolean {
+	try {
+		lstatSync(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Validate a product-owned state override without reading legacy state. */
+export function resolveSafeStateOverride(rawPath: string, envName: string): string {
+	const candidate = rawPath.trim();
+	if (!candidate || !isAbsolute(candidate)) {
+		throw new Error(`${envName} must be an absolute path`);
+	}
+
+	let existingAncestor = resolve(candidate);
+	const unresolvedSuffix: string[] = [];
+	while (!pathEntryExists(existingAncestor)) {
+		const parent = dirname(existingAncestor);
+		if (parent === existingAncestor) break;
+		unresolvedSuffix.unshift(basename(existingAncestor));
+		existingAncestor = parent;
+	}
+	let canonicalAncestor: string;
+	try {
+		canonicalAncestor = realpathSync(existingAncestor);
+	} catch {
+		throw new Error(`${envName} cannot resolve its deepest existing ancestor safely`);
+	}
+	const canonicalPath = resolve(canonicalAncestor, ...unresolvedSuffix);
+	const pathSegments = canonicalPath.split(sep).filter(Boolean);
+	if (pathSegments.some((segment) => LEGACY_STATE_SEGMENTS.has(segment))) {
+		throw new Error(`${envName} cannot target a legacy or unsafe state root`);
+	}
+	return resolve(candidate);
+}
+
+const DEFAULT_SHARE_VIEWER_URL = "https://gist.github.com/";
 
 /** Get the share viewer URL for a gist ID */
 export function getShareViewerUrl(gistId: string): string {
-	const baseUrl = process.env.PI_SHARE_VIEWER_URL || DEFAULT_SHARE_VIEWER_URL;
-	return `${baseUrl}#${gistId}`;
+	const override = process.env.MILLWRIGHT_SHARE_VIEWER_URL;
+	return override ? `${override}#${gistId}` : `${DEFAULT_SHARE_VIEWER_URL}${gistId}`;
 }
 
 // =============================================================================
-// User Config Paths (~/.prime/agent/*)
+// User Config Paths (~/.millwright/*)
 // =============================================================================
 
-/** Get the agent config directory (e.g., ~/.prime/agent/) */
+/** Get the user state directory (e.g., ~/.millwright/) */
 export function getAgentDir(): string {
 	const envDir = process.env[ENV_AGENT_DIR];
 	if (envDir) {
-		return expandTildePath(envDir);
+		return resolveSafeStateOverride(envDir, ENV_AGENT_DIR);
 	}
-	return join(homedir(), CONFIG_DIR_NAME);
+	return resolveSafeStateOverride(join(homedir(), CONFIG_DIR_NAME), "Millwright user state root");
+}
+
+/** Get and validate the workspace-local state directory (e.g., <cwd>/.millwright/). */
+export function getWorkspaceStateDir(cwd: string): string {
+	return resolveSafeStateOverride(resolve(cwd, CONFIG_DIR_NAME), "Millwright workspace state root");
 }
 
 /** Get path to user's custom themes directory */
@@ -544,7 +599,7 @@ export function getCustomThemesDir(): string {
 	return join(getAgentDir(), "themes");
 }
 
-/** Directory where daemon and client diagnostic logs are written (e.g. ~/.prime/agent/logs/). */
+/** Directory where daemon and client diagnostic logs are written (e.g. ~/.millwright/logs/). */
 export function getLogsDir(): string {
 	return join(getAgentDir(), "logs");
 }
@@ -654,8 +709,8 @@ export function getSessionsDir(agentDir: string = getAgentDir()): string {
 }
 
 export function getSessionDirEnvOverride(): string | undefined {
-	const envDir = process.env[ENV_SESSION_DIR] ?? process.env[ENV_LEGACY_SESSION_DIR];
-	return envDir ? expandTildePath(envDir) : undefined;
+	const envDir = process.env[ENV_SESSION_DIR];
+	return envDir ? resolveSafeStateOverride(envDir, ENV_SESSION_DIR) : undefined;
 }
 
 /** Get path to debug log file */

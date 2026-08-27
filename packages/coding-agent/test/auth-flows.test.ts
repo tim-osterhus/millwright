@@ -156,10 +156,10 @@ describe("ProviderAuthFlows", () => {
 		expect(authStorage.has(PRIME_INFERENCE_PROVIDER_ID)).toBe(false);
 	});
 
-	it("stores a reused Prime CLI key when Prime CLI config sync is disabled", async () => {
+	it("stores a reused Millwright provider key when automatic config sync is disabled", async () => {
 		process.env.HOME = tempDir;
 		process.env.PRIME_TEAM_ID = "env-team";
-		const defaultPrimeDir = join(tempDir, ".prime");
+		const defaultPrimeDir = join(tempDir, ".millwright", "providers", "prime");
 		mkdirSync(defaultPrimeDir, { recursive: true });
 		writeFileSync(join(defaultPrimeDir, "config.json"), JSON.stringify({ api_key: "prime-cli-key" }));
 		const authStorage = AuthStorage.create(authJsonPath, { usePrimeCliConfig: false });

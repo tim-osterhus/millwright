@@ -223,7 +223,7 @@ export async function createAgentSessionServices(
 		diagnostics.push({
 			type: "info",
 			message:
-				"Prime Agent sends pseudonymous usage and performance metrics without prompts, responses, tool content, file paths, or repository data. Disable this with telemetry.enabled=false, PRIME_AGENT_TELEMETRY=0, DO_NOT_TRACK=1, or offline mode.",
+				"Millwright sends pseudonymous usage and performance metrics without prompts, responses, tool content, file paths, or repository data. Disable this with telemetry.enabled=false, MILLWRIGHT_TELEMETRY=0, DO_NOT_TRACK=1, or offline mode.",
 		});
 		settingsManager.setTelemetryNoticeShown(true);
 	}

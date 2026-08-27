@@ -6,7 +6,7 @@
 import { getLogger } from "@earendil-works/pi-ai";
 
 const log = getLogger("coding-agent.timings");
-const ENABLED = process.env.PI_TIMING === "1";
+const ENABLED = process.env.MILLWRIGHT_TIMING === "1";
 const timings: Array<{ label: string; ms: number }> = [];
 let lastTime = Date.now();
 

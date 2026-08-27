@@ -437,7 +437,7 @@ function privatePrimeAuthorizationFingerprint(apiKey: string, teamId: string): s
 }
 
 function isOfflineModeEnabled(): boolean {
-	const value = process.env.PI_OFFLINE;
+	const value = process.env.MILLWRIGHT_OFFLINE;
 	if (!value) return false;
 	return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
 }

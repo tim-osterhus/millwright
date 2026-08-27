@@ -2,8 +2,17 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { APP_NAME, ENV_AGENT_DIR, PACKAGE_NAME, SELF_UPDATE_INTERACTIVE_CHILD_ENV, VERSION } from "../src/config.js";
+import {
+	APP_NAME,
+	ENV_AGENT_DIR,
+	ENV_PACKAGE_DIR,
+	PACKAGE_NAME,
+	PRODUCT_PACKAGE_NAME,
+	SELF_UPDATE_INTERACTIVE_CHILD_ENV,
+	VERSION,
+} from "../src/config.js";
 import { main } from "../src/main.js";
+import { DAEMON_WORKER_SUPERVISOR_SOCKET_ENV } from "../src/modes/daemon/daemon-worker-protocol.js";
 
 function restoreEnv(name: string, value: string | undefined): void {
 	if (value === undefined) {
@@ -30,8 +39,9 @@ describe("package commands", () => {
 	let packageDir: string;
 	let originalCwd: string;
 	let originalAgentDir: string | undefined;
-	let originalPiPackageDir: string | undefined;
-	let originalPrimeAgentDownloadBaseUrl: string | undefined;
+	let originalSupervisorSocket: string | undefined;
+	let originalPackageDir: string | undefined;
+	let originalMillwrightDownloadBaseUrl: string | undefined;
 	let originalTmpDir: string | undefined;
 	let originalExitCode: typeof process.exitCode;
 	let originalExecPath: string;
@@ -52,8 +62,10 @@ describe("package commands", () => {
 
 		originalCwd = process.cwd();
 		originalAgentDir = process.env[ENV_AGENT_DIR];
-		originalPiPackageDir = process.env.PI_PACKAGE_DIR;
-		originalPrimeAgentDownloadBaseUrl = process.env.PRIME_AGENT_DOWNLOAD_BASE_URL;
+		originalSupervisorSocket = process.env[DAEMON_WORKER_SUPERVISOR_SOCKET_ENV];
+		originalPackageDir = process.env[ENV_PACKAGE_DIR];
+		delete process.env[DAEMON_WORKER_SUPERVISOR_SOCKET_ENV];
+		originalMillwrightDownloadBaseUrl = process.env.MILLWRIGHT_DOWNLOAD_BASE_URL;
 		originalTmpDir = process.env.TMPDIR;
 		originalExitCode = process.exitCode;
 		originalExecPath = process.execPath;
@@ -68,8 +80,9 @@ describe("package commands", () => {
 		process.chdir(originalCwd);
 		process.exitCode = originalExitCode;
 		restoreEnv(ENV_AGENT_DIR, originalAgentDir);
-		restoreEnv("PI_PACKAGE_DIR", originalPiPackageDir);
-		restoreEnv("PRIME_AGENT_DOWNLOAD_BASE_URL", originalPrimeAgentDownloadBaseUrl);
+		restoreEnv(DAEMON_WORKER_SUPERVISOR_SOCKET_ENV, originalSupervisorSocket);
+		restoreEnv(ENV_PACKAGE_DIR, originalPackageDir);
+		restoreEnv("MILLWRIGHT_DOWNLOAD_BASE_URL", originalMillwrightDownloadBaseUrl);
 		restoreEnv("TMPDIR", originalTmpDir);
 		Object.defineProperty(process, "execPath", { value: originalExecPath, configurable: true });
 		rmSync(tempDir, { recursive: true, force: true });
@@ -187,14 +200,20 @@ describe("package commands", () => {
 		const selfPackageDir = join(globalPrefix, "lib", "node_modules", "@earendil-works", "pi-coding-agent");
 		const fakeNpmPath = join(tempDir, "fake-npm.cjs");
 		const recordPath = join(tempDir, "self-update.json");
-		const tarballUrl = "https://downloads.example.test/prime-agent/prime-agent-current.tgz";
+		const baseUrl = "https://downloads.example.test/millwright";
+		const tarballPath = "releases/current/millwright-agent.tgz";
+		const tarballUrl = `${baseUrl}/${tarballPath}`;
 		mkdirSync(selfPackageDir, { recursive: true });
-		mkdirSync(join(projectDir, ".prime", "agent"), { recursive: true });
+		mkdirSync(join(projectDir, ".millwright"), { recursive: true });
 		writeFileSync(
 			fakeNpmPath,
 			`const fs=require("node:fs"),path=require("node:path"),args=process.argv.slice(2),prefix=args[args.indexOf("--prefix")+1];
 if(args.includes("root")) console.log(path.join(prefix,"lib","node_modules"));
-else fs.writeFileSync(${JSON.stringify(recordPath)},JSON.stringify(args));
+else {
+	const records=fs.existsSync(${JSON.stringify(recordPath)})?JSON.parse(fs.readFileSync(${JSON.stringify(recordPath)},"utf-8")):[];
+	records.push(args);
+	fs.writeFileSync(${JSON.stringify(recordPath)},JSON.stringify(records));
+}
 `,
 		);
 		writeFileSync(
@@ -202,15 +221,18 @@ else fs.writeFileSync(${JSON.stringify(recordPath)},JSON.stringify(args));
 			JSON.stringify({ npmCommand: [originalExecPath, fakeNpmPath, "--prefix", globalPrefix] }, null, 2),
 		);
 		writeFileSync(
-			join(projectDir, ".prime", "agent", "settings.json"),
+			join(projectDir, ".millwright", "settings.json"),
 			JSON.stringify({ npmCommand: [originalExecPath, fakeNpmPath, "--prefix", projectPrefix] }, null, 2),
 		);
-		process.env.PI_PACKAGE_DIR = selfPackageDir;
+		process.env[ENV_PACKAGE_DIR] = selfPackageDir;
+		process.env.MILLWRIGHT_DOWNLOAD_BASE_URL = baseUrl;
 		Object.defineProperty(process, "execPath", {
 			value: join(selfPackageDir, "dist", "cli.js"),
 			configurable: true,
 		});
-		const fetchMock = vi.fn(async () => Response.json({ tarball: tarballUrl, version: VERSION }));
+		const fetchMock = vi.fn(async () =>
+			Response.json({ package: PRODUCT_PACKAGE_NAME, tarball: tarballPath, version: VERSION }),
+		);
 		vi.stubGlobal("fetch", fetchMock);
 
 		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -222,17 +244,19 @@ else fs.writeFileSync(${JSON.stringify(recordPath)},JSON.stringify(args));
 			expect(process.exitCode).toBeUndefined();
 			expect(errorSpy).not.toHaveBeenCalled();
 			expect(fetchMock).toHaveBeenCalledOnce();
-			const recordedArgs = JSON.parse(readFileSync(recordPath, "utf-8")) as string[];
-			expect(recordedArgs).toContain(globalPrefix);
-			expect(recordedArgs).toContain(tarballUrl);
-			expect(recordedArgs).not.toContain(projectPrefix);
+			const recordedCalls = JSON.parse(readFileSync(recordPath, "utf-8")) as string[][];
+			expect(recordedCalls).toEqual([
+				expect.arrayContaining([globalPrefix, "install", "-g", tarballUrl]),
+				expect.arrayContaining([globalPrefix, "uninstall", "-g", PACKAGE_NAME]),
+			]);
+			expect(recordedCalls.flat()).not.toContain(projectPrefix);
 		} finally {
 			logSpy.mockRestore();
 			errorSpy.mockRestore();
 		}
 	});
 
-	it("uses the current package name when the update check omits packageName", async () => {
+	it("uses the public Millwright package when the update check omits packageName", async () => {
 		const globalPrefix = join(tempDir, "global-prefix");
 		const selfPackageDir = join(globalPrefix, "lib", "node_modules", "@mariozechner", "pi-coding-agent");
 		const fakeNpmPath = join(tempDir, "fake-npm.cjs");
@@ -249,7 +273,7 @@ else fs.writeFileSync(${JSON.stringify(recordPath)},JSON.stringify(args));
 			join(agentDir, "settings.json"),
 			JSON.stringify({ npmCommand: [originalExecPath, fakeNpmPath, "--prefix", globalPrefix] }, null, 2),
 		);
-		process.env.PI_PACKAGE_DIR = selfPackageDir;
+		process.env[ENV_PACKAGE_DIR] = selfPackageDir;
 		Object.defineProperty(process, "execPath", {
 			value: join(selfPackageDir, "dist", "cli.js"),
 			configurable: true,
@@ -267,14 +291,14 @@ else fs.writeFileSync(${JSON.stringify(recordPath)},JSON.stringify(args));
 			expect(errorSpy).not.toHaveBeenCalled();
 			expect(fetchMock).toHaveBeenCalledOnce();
 			const recordedArgs = JSON.parse(readFileSync(recordPath, "utf-8")) as string[];
-			expect(recordedArgs).toContain(PACKAGE_NAME);
+			expect(recordedArgs).toContain(PRODUCT_PACKAGE_NAME);
 		} finally {
 			logSpy.mockRestore();
 			errorSpy.mockRestore();
 		}
 	});
 
-	it("installs the active package name from the update check during self-update", async () => {
+	it("rejects a foreign package name and installs the public Millwright package", async () => {
 		const globalPrefix = join(tempDir, "global-prefix");
 		const selfPackageDir = join(globalPrefix, "lib", "node_modules", "@mariozechner", "pi-coding-agent");
 		const fakeNpmPath = join(tempDir, "fake-npm.cjs");
@@ -295,12 +319,12 @@ else {
 			join(agentDir, "settings.json"),
 			JSON.stringify({ npmCommand: [originalExecPath, fakeNpmPath, "--prefix", globalPrefix] }, null, 2),
 		);
-		process.env.PI_PACKAGE_DIR = selfPackageDir;
+		process.env[ENV_PACKAGE_DIR] = selfPackageDir;
 		Object.defineProperty(process, "execPath", {
 			value: join(selfPackageDir, "dist", "cli.js"),
 			configurable: true,
 		});
-		const activePackageName = PACKAGE_NAME === "@new-scope/pi" ? "@newer-scope/pi" : "@new-scope/pi";
+		const activePackageName = "prime-agent";
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => Response.json({ packageName: activePackageName, version: "0.73.0" })),
@@ -317,7 +341,7 @@ else {
 			const recordedCalls = JSON.parse(readFileSync(recordPath, "utf-8")) as string[][];
 			expect(recordedCalls).toEqual([
 				expect.arrayContaining(["uninstall", "-g", PACKAGE_NAME]),
-				expect.arrayContaining(["install", "-g", activePackageName]),
+				expect.arrayContaining(["install", "-g", PRODUCT_PACKAGE_NAME]),
 			]);
 		} finally {
 			logSpy.mockRestore();
@@ -325,13 +349,13 @@ else {
 		}
 	});
 
-	it("installs the Prime Agent tarball from the update manifest during self-update", async () => {
+	it("installs the Millwright tarball from the update manifest during self-update", async () => {
 		const globalPrefix = join(tempDir, "global-prefix");
 		const selfPackageDir = join(globalPrefix, "lib", "node_modules", "@earendil-works", "pi-coding-agent");
 		const fakeNpmPath = join(tempDir, "fake-npm.cjs");
 		const recordPath = join(tempDir, "self-update.json");
-		const baseUrl = "https://downloads.example.test/prime-agent";
-		const tarballPath = "releases/v0.73.0/prime-agent-0.73.0.tgz";
+		const baseUrl = "https://downloads.example.test/millwright";
+		const tarballPath = "releases/v0.73.0/millwright-agent-0.73.0.tgz";
 		mkdirSync(selfPackageDir, { recursive: true });
 		writeFileSync(
 			fakeNpmPath,
@@ -348,15 +372,15 @@ else {
 			join(agentDir, "settings.json"),
 			JSON.stringify({ npmCommand: [originalExecPath, fakeNpmPath, "--prefix", globalPrefix] }, null, 2),
 		);
-		process.env.PI_PACKAGE_DIR = selfPackageDir;
-		process.env.PRIME_AGENT_DOWNLOAD_BASE_URL = baseUrl;
+		process.env[ENV_PACKAGE_DIR] = selfPackageDir;
+		process.env.MILLWRIGHT_DOWNLOAD_BASE_URL = baseUrl;
 		Object.defineProperty(process, "execPath", {
 			value: join(selfPackageDir, "dist", "cli.js"),
 			configurable: true,
 		});
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async () => Response.json({ package: "prime-agent", tarball: tarballPath, version: "0.73.0" })),
+			vi.fn(async () => Response.json({ package: PRODUCT_PACKAGE_NAME, tarball: tarballPath, version: "0.73.0" })),
 		);
 
 		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -378,12 +402,12 @@ else {
 		}
 	});
 
-	it("does not self-update when the same-version manifest uses the Prime Agent package alias", async () => {
+	it("rejects a foreign package alias and falls back to the Millwright package", async () => {
 		const globalPrefix = join(tempDir, "global-prefix");
 		const selfPackageDir = join(globalPrefix, "lib", "node_modules", "@earendil-works", "pi-coding-agent");
 		const fakeNpmPath = join(tempDir, "fake-npm.cjs");
 		const recordPath = join(tempDir, "self-update.json");
-		const baseUrl = "https://downloads.example.test/prime-agent";
+		const baseUrl = "https://downloads.example.test/millwright";
 		mkdirSync(selfPackageDir, { recursive: true });
 		writeFileSync(
 			fakeNpmPath,
@@ -396,8 +420,8 @@ else fs.writeFileSync(${JSON.stringify(recordPath)},JSON.stringify(args));
 			join(agentDir, "settings.json"),
 			JSON.stringify({ npmCommand: [originalExecPath, fakeNpmPath, "--prefix", globalPrefix] }, null, 2),
 		);
-		process.env.PI_PACKAGE_DIR = selfPackageDir;
-		process.env.PRIME_AGENT_DOWNLOAD_BASE_URL = baseUrl;
+		process.env[ENV_PACKAGE_DIR] = selfPackageDir;
+		process.env.MILLWRIGHT_DOWNLOAD_BASE_URL = baseUrl;
 		Object.defineProperty(process, "execPath", {
 			value: join(selfPackageDir, "dist", "cli.js"),
 			configurable: true,
@@ -417,12 +441,13 @@ else fs.writeFileSync(${JSON.stringify(recordPath)},JSON.stringify(args));
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
 		try {
-			await expect(main(["update"])).resolves.toBeUndefined();
+			await expect(runSelfUpdateInstallChild(["update"])).resolves.toBeUndefined();
 
 			expect(process.exitCode).toBeUndefined();
 			expect(errorSpy).not.toHaveBeenCalled();
-			expect(logSpy.mock.calls.map(([message]) => String(message)).join("\n")).toContain("is already up to date");
-			expect(existsSync(recordPath)).toBe(false);
+			const recordedArgs = JSON.parse(readFileSync(recordPath, "utf-8")) as string[];
+			expect(recordedArgs).toContain(PRODUCT_PACKAGE_NAME);
+			expect(recordedArgs).not.toContain("prime-agent");
 		} finally {
 			logSpy.mockRestore();
 			errorSpy.mockRestore();
@@ -452,7 +477,7 @@ if(args.includes("install")) process.exit(23);
 			join(agentDir, "settings.json"),
 			JSON.stringify({ npmCommand: [originalExecPath, fakeNpmPath, "--prefix", globalPrefix] }, null, 2),
 		);
-		process.env.PI_PACKAGE_DIR = selfPackageDir;
+		process.env[ENV_PACKAGE_DIR] = selfPackageDir;
 		Object.defineProperty(process, "execPath", {
 			value: join(selfPackageDir, "dist", "cli.js"),
 			configurable: true,
@@ -467,7 +492,7 @@ if(args.includes("install")) process.exit(23);
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
 		try {
-			await expect(main(["update"])).resolves.toBeUndefined();
+			await expect(runSelfUpdateInstallChild(["update"])).resolves.toBeUndefined();
 
 			expect(process.exitCode).toBe(1);
 			const stdout = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
@@ -477,7 +502,7 @@ if(args.includes("install")) process.exit(23);
 			const recordedCalls = JSON.parse(readFileSync(recordPath, "utf-8")) as string[][];
 			expect(recordedCalls).toEqual([
 				expect.arrayContaining(["uninstall", "-g", PACKAGE_NAME]),
-				expect.arrayContaining(["install", "-g", activePackageName]),
+				expect.arrayContaining(["install", "-g", PRODUCT_PACKAGE_NAME]),
 			]);
 		} finally {
 			logSpy.mockRestore();

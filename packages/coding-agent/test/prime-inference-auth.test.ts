@@ -1,16 +1,20 @@
 import { Buffer } from "node:buffer";
 import { constants, publicEncrypt } from "node:crypto";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	checkPrimeAgentTracesAccess,
 	checkPrimeInferenceAccess,
+	clearPrimeCliCredentials,
 	fetchPrimeTeams,
+	getPrimeCliConfigPath,
 	loadPrimeCliConfig,
 	loginPrimeAgentTraces,
 	loginPrimeInference,
+	savePrimeCliApiKey,
+	savePrimeCliTeamSelection,
 } from "../src/core/prime-inference-auth.js";
 
 function jsonResponse(body: unknown, status: number = 200): Response {
@@ -65,12 +69,14 @@ function encryptChallengeResult(publicKey: string, value: string): string {
 describe("Prime Inference auth", () => {
 	let tempDir: string;
 	let configPath: string;
+	let originalHome: string | undefined;
 	let originalTraceBaseUrl: string | undefined;
 
 	beforeEach(() => {
 		tempDir = join(tmpdir(), `pi-prime-auth-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		mkdirSync(tempDir, { recursive: true });
 		configPath = join(tempDir, "config.json");
+		originalHome = process.env.HOME;
 		originalTraceBaseUrl = process.env.PRIME_AGENT_TRACES_BASE_URL;
 		delete process.env.PRIME_AGENT_TRACES_BASE_URL;
 	});
@@ -80,6 +86,11 @@ describe("Prime Inference auth", () => {
 			delete process.env.PRIME_AGENT_TRACES_BASE_URL;
 		} else {
 			process.env.PRIME_AGENT_TRACES_BASE_URL = originalTraceBaseUrl;
+		}
+		if (originalHome === undefined) {
+			delete process.env.HOME;
+		} else {
+			process.env.HOME = originalHome;
 		}
 		if (existsSync(tempDir)) {
 			rmSync(tempDir, { recursive: true });
@@ -105,6 +116,39 @@ describe("Prime Inference auth", () => {
 			path: configPath,
 			teamIdFromEnv: false,
 		});
+	});
+
+	it("keeps Prime provider credentials under Millwright state without reading legacy Prime state", () => {
+		const home = join(tempDir, "home");
+		const legacyPath = join(home, ".prime", "config.json");
+		const expectedPath = join(home, ".millwright", "providers", "prime", "config.json");
+		mkdirSync(join(home, ".prime"), { recursive: true });
+		writeFileSync(legacyPath, JSON.stringify({ api_key: "legacy-key" }));
+		chmodSync(legacyPath, 0o000);
+		process.env.HOME = home;
+
+		expect(getPrimeCliConfigPath()).toBe(expectedPath);
+		const emptyConfig = loadPrimeCliConfig();
+		expect(emptyConfig.path).toBe(expectedPath);
+		expect(emptyConfig.apiKey).toBeUndefined();
+		expect(savePrimeCliApiKey("millwright-key")).toMatchObject({
+			path: expectedPath,
+			apiKey: "millwright-key",
+		});
+		expect(savePrimeCliTeamSelection({ teamId: "team-1", name: "Research", role: "admin" })).toMatchObject({
+			teamId: "team-1",
+			teamName: "Research",
+			teamRole: "admin",
+		});
+		const clearedConfig = clearPrimeCliCredentials();
+		expect(clearedConfig.path).toBe(expectedPath);
+		expect(clearedConfig.apiKey).toBeUndefined();
+		expect(clearedConfig.teamId).toBeUndefined();
+		chmodSync(legacyPath, 0o600);
+		expect(readFileSync(legacyPath, "utf8")).toBe(JSON.stringify({ api_key: "legacy-key" }));
+
+		writeFileSync(configPath, JSON.stringify({ api_key: "explicit-key" }));
+		expect(loadPrimeCliConfig(configPath)).toMatchObject({ path: configPath, apiKey: "explicit-key" });
 	});
 
 	it("loads Prime CLI team selection", () => {

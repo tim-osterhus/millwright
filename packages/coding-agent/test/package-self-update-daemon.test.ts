@@ -14,8 +14,8 @@ import {
 	getDaemonUpdateRestartManifestPath,
 	getLegacyDaemonUpdateRestartManifestPath,
 	PACKAGE_NAME,
+	PRODUCT_PACKAGE_NAME,
 	SELF_UPDATE_INTERACTIVE_CHILD_ENV,
-	SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE,
 	VERSION,
 } from "../src/config.js";
 import type { AgentSessionRuntimeMetadata } from "../src/core/agent-session-runtime.js";
@@ -396,7 +396,7 @@ describe("self-update daemon restart", () => {
 	let projectDir: string;
 	let packageDir: string;
 	let originalAgentDir: string | undefined;
-	let originalPiPackageDir: string | undefined;
+	let originalMillwrightPackageDir: string | undefined;
 	let originalCwd: string;
 	let originalExecPath: string;
 	let originalExitCode: typeof process.exitCode;
@@ -507,13 +507,13 @@ describe("self-update daemon restart", () => {
 		mkdirSync(packageDir, { recursive: true });
 
 		originalAgentDir = process.env[ENV_AGENT_DIR];
-		originalPiPackageDir = process.env.PI_PACKAGE_DIR;
+		originalMillwrightPackageDir = process.env.MILLWRIGHT_PACKAGE_DIR;
 		originalCwd = process.cwd();
 		originalExecPath = process.execPath;
 		originalExitCode = process.exitCode;
 		process.exitCode = undefined;
 		process.env[ENV_AGENT_DIR] = agentDir;
-		process.env.PI_PACKAGE_DIR = packageDir;
+		process.env.MILLWRIGHT_PACKAGE_DIR = packageDir;
 		process.chdir(projectDir);
 		Object.defineProperty(process, "execPath", {
 			value: join(packageDir, "dist", "cli.js"),
@@ -535,10 +535,10 @@ describe("self-update daemon restart", () => {
 		} else {
 			process.env[ENV_AGENT_DIR] = originalAgentDir;
 		}
-		if (originalPiPackageDir === undefined) {
-			delete process.env.PI_PACKAGE_DIR;
+		if (originalMillwrightPackageDir === undefined) {
+			delete process.env.MILLWRIGHT_PACKAGE_DIR;
 		} else {
-			process.env.PI_PACKAGE_DIR = originalPiPackageDir;
+			process.env.MILLWRIGHT_PACKAGE_DIR = originalMillwrightPackageDir;
 		}
 		delete process.env[SELF_UPDATE_INTERACTIVE_CHILD_ENV];
 		Object.defineProperty(process, "execPath", { value: originalExecPath, configurable: true });
@@ -565,7 +565,7 @@ describe("self-update daemon restart", () => {
 		expect(mockState.calls).toContain("daemon-request:prepare_update_restart");
 	});
 
-	it("uses the interactive no-change sentinel only when self-update is unchanged", async () => {
+	it("installs the public Millwright package when the version is unchanged but the package identity differs", async () => {
 		process.env[SELF_UPDATE_INTERACTIVE_CHILD_ENV] = "1";
 		vi.stubGlobal(
 			"fetch",
@@ -574,8 +574,9 @@ describe("self-update daemon restart", () => {
 
 		await expect(handlePackageCommand(["update", "--self"])).resolves.toBe(true);
 
-		expect(process.exitCode).toBe(SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE);
-		expect(mockState.calls.some((call) => call.startsWith("spawn:npm "))).toBe(false);
+		expect(process.exitCode).toBeUndefined();
+		expect(mockState.calls).toContain(`spawn:npm uninstall -g ${PACKAGE_NAME}`);
+		expect(mockState.calls).toContain(`spawn:npm install -g ${PRODUCT_PACKAGE_NAME}`);
 	});
 
 	it("does not use the no-change sentinel when interactive self-update is cancelled", async () => {

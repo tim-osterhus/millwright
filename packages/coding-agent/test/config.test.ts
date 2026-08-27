@@ -1,10 +1,11 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
-import { homedir, tmpdir } from "os";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { delimiter, join } from "path";
 import { afterEach, describe, expect, test } from "vitest";
 import {
 	detectInstallMethod,
 	ENV_LEGACY_SESSION_DIR,
+	ENV_PACKAGE_DIR,
 	ENV_SESSION_DIR,
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
@@ -15,7 +16,7 @@ import { getDefaultSessionDir } from "../src/core/session-manager.js";
 
 const execPathDescriptor = Object.getOwnPropertyDescriptor(process, "execPath");
 const originalPath = process.env.PATH;
-const originalPiPackageDir = process.env.PI_PACKAGE_DIR;
+const originalPackageDir = process.env[ENV_PACKAGE_DIR];
 const originalSessionDir = process.env[ENV_SESSION_DIR];
 const originalLegacySessionDir = process.env[ENV_LEGACY_SESSION_DIR];
 let tempDir: string | undefined;
@@ -36,10 +37,10 @@ afterEach(() => {
 	} else {
 		process.env.PATH = originalPath;
 	}
-	if (originalPiPackageDir === undefined) {
-		delete process.env.PI_PACKAGE_DIR;
+	if (originalPackageDir === undefined) {
+		delete process.env[ENV_PACKAGE_DIR];
 	} else {
-		process.env.PI_PACKAGE_DIR = originalPiPackageDir;
+		process.env[ENV_PACKAGE_DIR] = originalPackageDir;
 	}
 	if (originalSessionDir === undefined) {
 		delete process.env[ENV_SESSION_DIR];
@@ -65,7 +66,7 @@ function createNpmPrefixInstall(template = "pi-prefix-"): { prefix: string; pack
 	const packageDir = join(scopeDir, "pi-coding-agent");
 	mkdirSync(packageDir, { recursive: true });
 	tempDir = prefix;
-	process.env.PI_PACKAGE_DIR = packageDir;
+	process.env[ENV_PACKAGE_DIR] = packageDir;
 	setExecPath(join(packageDir, "dist", "cli.js"));
 	return { prefix, packageDir };
 }
@@ -75,7 +76,7 @@ function createHomebrewInstall(): { packageDir: string } {
 	const packageDir = join(prefix, "Cellar", "prime-agent", "0.7.0", "libexec", "lib", "node_modules", "prime-agent");
 	mkdirSync(packageDir, { recursive: true });
 	tempDir = prefix;
-	process.env.PI_PACKAGE_DIR = packageDir;
+	process.env[ENV_PACKAGE_DIR] = packageDir;
 	setExecPath(join(packageDir, "dist", "cli.js"));
 	return { packageDir };
 }
@@ -91,7 +92,7 @@ function createPnpmGlobalInstall(): { root: string; packageDir: string } {
 	chmodSync(join(binDir, process.platform === "win32" ? "pnpm.cmd" : "pnpm"), 0o755);
 	tempDir = temp;
 	process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
-	process.env.PI_PACKAGE_DIR = packageDir;
+	process.env[ENV_PACKAGE_DIR] = packageDir;
 	setExecPath(
 		join(
 			root,
@@ -118,7 +119,7 @@ function createYarnGlobalInstall(): { globalDir: string; packageDir: string } {
 	chmodSync(join(binDir, process.platform === "win32" ? "yarn.cmd" : "yarn"), 0o755);
 	tempDir = temp;
 	process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
-	process.env.PI_PACKAGE_DIR = packageDir;
+	process.env[ENV_PACKAGE_DIR] = packageDir;
 	setExecPath(join(globalDir, ".yarn", "@mariozechner", "pi-coding-agent", "dist", "cli.js"));
 	return { globalDir, packageDir };
 }
@@ -136,7 +137,7 @@ function createBunGlobalInstall(): { packageDir: string } {
 	chmodSync(join(bunBin, process.platform === "win32" ? "bun.cmd" : "bun"), 0o755);
 	tempDir = temp;
 	process.env.PATH = `${bunBin}${delimiter}${originalPath ?? ""}`;
-	process.env.PI_PACKAGE_DIR = packageDir;
+	process.env[ENV_PACKAGE_DIR] = packageDir;
 	setExecPath(join(packageDir, "dist", "cli.js"));
 	return { packageDir };
 }
@@ -192,8 +193,8 @@ describe("detectInstallMethod", () => {
 
 		expect(detectInstallMethod()).toBe("homebrew");
 		expect(getSelfUpdateCommand("prime-agent")).toBeUndefined();
-		expect(getSelfUpdateUnavailableInstruction("prime-agent")).toBe("Update with: brew upgrade prime-agent");
-		expect(getUpdateInstruction("prime-agent")).toBe("Update with: brew upgrade prime-agent");
+		expect(getSelfUpdateUnavailableInstruction("millwright-agent")).toBe("Update with: brew upgrade millwright");
+		expect(getUpdateInstruction("millwright-agent")).toBe("Update with: brew upgrade millwright");
 	});
 
 	test("self-updates npm installs from custom prefixes", () => {
@@ -301,7 +302,7 @@ describe("detectInstallMethod", () => {
 
 	test("does not infer Windows npm custom prefixes from package paths", () => {
 		const packageDir = "C:\\Users\\Admin\\npm prefix\\node_modules\\@earendil-works\\pi-coding-agent";
-		process.env.PI_PACKAGE_DIR = packageDir;
+		process.env[ENV_PACKAGE_DIR] = packageDir;
 		setExecPath(`${packageDir}\\dist\\cli.js`);
 
 		expect(detectInstallMethod()).toBe("npm");
@@ -411,7 +412,8 @@ describe("detectInstallMethod", () => {
 
 describe("session paths", () => {
 	test("uses the short app-prefixed session dir env var", () => {
-		expect(ENV_SESSION_DIR).toBe("PRIME_AGENT_SESSION_DIR");
+		expect(ENV_SESSION_DIR).toBe("MILLWRIGHT_SESSION_DIR");
+		expect(ENV_LEGACY_SESSION_DIR).toBe("MILLWRIGHT_CODING_AGENT_SESSION_DIR");
 	});
 
 	test("uses the session root env var when computing sessions dir", () => {
@@ -421,18 +423,40 @@ describe("session paths", () => {
 		expect(getSessionsDir("/agent")).toBe(sessionRoot);
 	});
 
-	test("uses the legacy coding agent session root env var when the new env var is unset", () => {
+	test("does not read the older coding-agent session alias", () => {
 		const sessionRoot = join(tmpdir(), `pi-legacy-session-root-${Date.now()}`);
 		delete process.env[ENV_SESSION_DIR];
 		process.env[ENV_LEGACY_SESSION_DIR] = sessionRoot;
 
-		expect(getSessionsDir("/agent")).toBe(sessionRoot);
+		expect(getSessionsDir("/agent")).toBe(join("/agent", "sessions"));
 	});
 
-	test("expands tilde in the session root env var", () => {
+	test("rejects non-absolute session root overrides", () => {
 		process.env[ENV_SESSION_DIR] = "~/prime-agent-sessions";
 
-		expect(getSessionsDir("/agent")).toBe(join(homedir(), "prime-agent-sessions"));
+		expect(() => getSessionsDir("/agent")).toThrow(/absolute/i);
+	});
+
+	test("rejects legacy roots, descendants, and symlink escapes", () => {
+		tempDir = mkdtempSync(join(tmpdir(), "millwright-session-safety-"));
+		const legacyPrime = join(tempDir, ".prime");
+		const legacyMillraceCli = join(tempDir, ".millrace-cli");
+		const safeParent = join(tempDir, "safe");
+		mkdirSync(legacyPrime, { recursive: true });
+		mkdirSync(legacyMillraceCli, { recursive: true });
+		mkdirSync(safeParent, { recursive: true });
+		symlinkSync(legacyPrime, join(safeParent, "legacy-link"), "dir");
+
+		for (const unsafe of [
+			legacyPrime,
+			join(legacyPrime, "sessions"),
+			legacyMillraceCli,
+			join(legacyMillraceCli, "sessions"),
+			join(safeParent, "legacy-link", "sessions"),
+		]) {
+			process.env[ENV_SESSION_DIR] = unsafe;
+			expect(() => getSessionsDir("/agent")).toThrow(/legacy|unsafe/i);
+		}
 	});
 
 	test("uses the env session root as the default session dir", () => {

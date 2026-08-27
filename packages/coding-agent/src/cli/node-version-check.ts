@@ -48,11 +48,11 @@ export function assertNodeVersion(io: NodeVersionGuardIO): boolean {
 		return true;
 	}
 
-	io.log(`prime-agent requires Node ${MIN_NODE_VERSION} or newer, but the active Node is v${io.version}.`);
+	io.log(`Millwright requires Node ${MIN_NODE_VERSION} or newer, but the active Node is v${io.version}.`);
 	io.log("");
 	io.log(`  1. Install Node ${MIN_NODE_VERSION}+ (e.g. "nvm install 22 && nvm use 22", or from https://nodejs.org)`);
-	io.log("  2. Reinstall prime-agent under that Node so the command resolves to it:");
-	io.log("     https://github.com/PrimeIntellect-ai/prime-agent/releases/latest");
+	io.log("  2. Reinstall Millwright under that Node so the command resolves to it:");
+	io.log("     https://github.com/tim-osterhus/millwright/releases/latest");
 	io.exit(1);
 	return false;
 }

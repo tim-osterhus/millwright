@@ -33,7 +33,14 @@ import {
 	SessionSelectorError,
 	SessionSelectorNotFoundError,
 } from "./cli/session-resolver.js";
-import { APP_NAME, expandTildePath, getAgentDir, getSessionDirEnvOverride, VERSION } from "./config.js";
+import {
+	APP_NAME,
+	expandTildePath,
+	getAgentDir,
+	getSessionDirEnvOverride,
+	USE_PRIME_CLI_CONFIG_BY_DEFAULT,
+	VERSION,
+} from "./config.js";
 import {
 	type AgentExecutionMode,
 	type AgentSessionRuntimeConfig,
@@ -193,7 +200,7 @@ function toPrintOutputMode(appMode: AppMode): Exclude<Mode, "rpc" | "acp" | "dae
 	return appMode === "json" ? "json" : "text";
 }
 
-// `prime-agent agents` opens the agents view directly.
+// `millwright agents` opens the agents view directly.
 export function parseAgentsViewCommand(args: string[]): { explicitAgentsView: boolean; args: string[] } {
 	if (args[0] === "agents") {
 		return { explicitAgentsView: true, args: args.slice(1) };
@@ -359,12 +366,12 @@ async function promptConfirm(message: string): Promise<boolean> {
 const STARTUP_SESSION_LOSS_COPY: DaemonSessionLossCopy = {
 	busyDetail(count) {
 		const { noun, pronoun } = pluralizeSessions(count);
-		return `A background service from a different Prime Agent version is running with ${count} busy ${noun}. Stopping it will terminate ${pronoun}.`;
+		return `A background service from a different Millwright version is running with ${count} busy ${noun}. Stopping it will terminate ${pronoun}.`;
 	},
 	unlistableDetail:
-		"A background service from a different Prime Agent version is running and its sessions could not be listed. Stopping it may terminate active sessions.",
+		"A background service from a different Millwright version is running and its sessions could not be listed. Stopping it may terminate active sessions.",
 	question: "Stop it and continue?",
-	nonTtyHint: 'Run "prime-agent shutdown" to stop it, then retry.',
+	nonTtyHint: 'Run "millwright shutdown" to stop it, then retry.',
 };
 
 // The promise to keep after awaiting readiness. Wrapped in an object so it
@@ -386,7 +393,7 @@ async function takeOverStaleDaemonOrExit(socketPath: string): Promise<DaemonRead
 	}
 	if (!(await shutdownDaemonAndWait(socketPath))) {
 		console.error(
-			chalk.red(`Could not stop the background service on ${socketPath}. Run "prime-agent shutdown" and retry.`),
+			chalk.red(`Could not stop the background service on ${socketPath}. Run "millwright shutdown" and retry.`),
 		);
 		process.exit(1);
 	}
@@ -731,7 +738,7 @@ async function prepareRuntimeServices(options: {
 	const { config, sessionManager } = options;
 	const effectiveAgentDir = config.agentDir ?? options.agentDir;
 	const authStorage = AuthStorage.create(join(effectiveAgentDir, "auth.json"), {
-		usePrimeCliConfig: effectiveAgentDir === options.agentDir,
+		usePrimeCliConfig: USE_PRIME_CLI_CONFIG_BY_DEFAULT,
 	});
 	const services = await createAgentSessionServices({
 		cwd: options.cwd,
@@ -1046,10 +1053,10 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 	// Client and daemon are separate processes; both need these in their registry.
 	registerBuiltinMcpOAuthProviders();
-	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
+	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.MILLWRIGHT_OFFLINE);
 	if (offlineMode) {
-		process.env.PI_OFFLINE = "1";
-		process.env.PI_SKIP_VERSION_CHECK = "1";
+		process.env.MILLWRIGHT_OFFLINE = "1";
+		process.env.MILLWRIGHT_SKIP_VERSION_CHECK = "1";
 	}
 
 	const publicCommand = await handlePublicCommand(args);
@@ -1139,9 +1146,9 @@ export async function main(args: string[], options?: MainOptions) {
 	const agentDir = getAgentDir();
 	const startupSettingsManager = SettingsManager.create(cwd, agentDir);
 	reportDiagnostics(collectSettingsDiagnostics(startupSettingsManager, "startup session lookup"));
-	const startupBenchmark = isTruthyEnvFlag(process.env.PI_STARTUP_BENCHMARK);
+	const startupBenchmark = isTruthyEnvFlag(process.env.MILLWRIGHT_STARTUP_BENCHMARK);
 	if (startupBenchmark && appMode !== "interactive") {
-		console.error(chalk.red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
+		console.error(chalk.red("Error: MILLWRIGHT_STARTUP_BENCHMARK only supports interactive mode"));
 		process.exit(1);
 	}
 	// Programmatic factories are process-local functions and cannot be serialized to a daemon worker.

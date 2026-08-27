@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
-import { VERSION } from "../../config.js";
+import { PRODUCT_COMMAND_NAME, PRODUCT_NAME, VERSION } from "../../config.js";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.js";
 import type { AgentAutonomousStatus } from "../../core/autonomous.js";
 import { takeOverStdout, writeRawStdout } from "../../core/output-guard.js";
@@ -19,9 +19,9 @@ import { type AcpStopReason, acpStopReason } from "./acp-stop-reason.js";
 /**
  * ACP (Agent Client Protocol) mode.
  *
- * prime-agent acts as an ACP agent over NDJSON on stdio, driving an
+ * Millwright acts as an ACP agent over NDJSON on stdio, driving an
  * `AgentConnection` in-process. It deliberately does not shell out to RPC mode
- * and translate: prime-agent's differentiators (IPython-only tools, subagents,
+ * and translate: Millwright's differentiators (IPython-only tools, subagents,
  * autonomous gates) are visible as first-class events here, and a translating
  * adapter is exactly what flattens them away.
  *
@@ -103,7 +103,7 @@ interface AcpSessionEntry {
 }
 
 /**
- * Split ACP prompt blocks into the text and images prime-agent accepts.
+ * Split ACP prompt blocks into the text and images Millwright accepts.
  *
  * Image and embedded-resource blocks are advertised in `initialize`, so they must
  * actually reach the model: dropping them silently would let a client believe a
@@ -254,7 +254,7 @@ export async function runAcpModeWithConnection(
 		options.stream ?? acp.ndJsonStream(rawStdoutSink(), Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>);
 
 	const handle = acp
-		.agent({ name: "prime-agent" })
+		.agent({ name: PRODUCT_COMMAND_NAME })
 		.onRequest("initialize", async () => ({
 			protocolVersion: acp.PROTOCOL_VERSION,
 			agentCapabilities: {
@@ -264,8 +264,8 @@ export async function runAcpModeWithConnection(
 				// the single-session slot) instead of dropping the connection.
 				sessionCapabilities: { close: {} },
 			},
-			agentInfo: { name: "prime-agent", title: "Prime Agent", version: VERSION },
-			// Advertise prime-agent extras under a namespaced key: ACP reserves
+			agentInfo: { name: PRODUCT_COMMAND_NAME, title: PRODUCT_NAME, version: VERSION },
+			// Advertise Millwright extras under the retained namespaced key: ACP reserves
 			// every object root for future protocol fields.
 			_meta: primeAgentMeta({}),
 		}))
@@ -278,11 +278,11 @@ export async function runAcpModeWithConnection(
 			}
 			if (session) {
 				throw new Error(
-					"prime-agent ACP mode hosts one session per connection; " +
-						"start another prime-agent process for a second session",
+					`${PRODUCT_COMMAND_NAME} ACP mode hosts one session per connection; ` +
+						`start another ${PRODUCT_COMMAND_NAME} process for a second session`,
 				);
 			}
-			// prime-agent's cwd is fixed at startup by the session it was launched
+			// Millwright's cwd is fixed at startup by the session it was launched
 			// with, so a client-supplied cwd cannot be adopted after the fact.
 			// Report the real cwd back in `_meta` rather than failing the request or
 			// letting the client assume a directory the agent is not using.
@@ -299,7 +299,7 @@ export async function runAcpModeWithConnection(
 			}
 			const sessionId = randomUUID();
 			const entry: AcpSessionEntry = { id: sessionId, abort: undefined, unsubscribe: undefined };
-			// Subscribe for the session lifetime, not per prompt turn: prime-agent
+			// Subscribe for the session lifetime, not per prompt turn: Millwright
 			// subagents are fire-and-forget and keep reporting after the spawning turn
 			// ends, so a turn-scoped subscription would drop their updates. One
 			// mapping state per session keeps streaming bash output correlated with
@@ -369,7 +369,7 @@ export async function runAcpModeWithConnection(
 				// client as a successful but empty turn.
 				const failure = await turnFailure(connection, priorMessages);
 				if (failure && !abort.signal.aborted) {
-					throw new Error(`prime-agent turn failed: ${failure}`);
+					throw new Error(`${PRODUCT_COMMAND_NAME} turn failed: ${failure}`);
 				}
 				return { stopReason: acpStopReason({ cancelled: abort.signal.aborted, autonomous: status }) };
 			} catch (error) {

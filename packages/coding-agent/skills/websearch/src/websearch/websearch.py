@@ -18,13 +18,17 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _agent_dir() -> Path:
-    """Resolve the Prime Agent config dir the same way the runtime does."""
-    raw = (
-        os.environ.get("PRIME_AGENT_CODING_AGENT_DIR")
-        or os.environ.get("PI_CODING_AGENT_DIR")
-        or str(Path.home() / ".prime" / "agent")
-    )
-    return Path(raw).expanduser()
+    """Resolve and validate Millwright's product-owned state directory."""
+    raw = os.environ.get("MILLWRIGHT_CODING_AGENT_DIR")
+    if raw is None:
+        raw = str(Path.home() / ".millwright")
+    candidate = Path(raw.strip())
+    if not candidate.is_absolute():
+        raise ValueError("MILLWRIGHT_CODING_AGENT_DIR must be an absolute path")
+    canonical = candidate.resolve(strict=False)
+    if any(part in {".prime", ".millrace-cli"} for part in canonical.parts):
+        raise ValueError("MILLWRIGHT_CODING_AGENT_DIR cannot target a legacy or unsafe state root")
+    return candidate
 
 
 def _resolve_api_key() -> str:
@@ -151,14 +155,14 @@ async def run(
             "Web search is not set up yet: no Serper API key is configured.\n"
             "Tell the user how to enable it:\n"
             "  1. Get a free API key at https://serper.dev (sign up, copy the key).\n"
-            "  2. In Prime Agent, run /login, switch to MCP Connections, choose \"Serper (web search)\", and paste the key.\n"
+            "  2. In Millwright, run /login, switch to MCP Connections, choose \"Serper (web search)\", and paste the key.\n"
             "Do not ask the user to set environment variables. Once the key is saved, web search works automatically."
         )
 
     if timeout is None:
-        timeout = _env_int("PRIME_AGENT_WEBSEARCH_TIMEOUT", 45)
+        timeout = _env_int("MILLWRIGHT_WEBSEARCH_TIMEOUT", 45)
     if num_results is None:
-        num_results = _env_int("PRIME_AGENT_WEBSEARCH_NUM_RESULTS", 5)
+        num_results = _env_int("MILLWRIGHT_WEBSEARCH_NUM_RESULTS", 5)
 
     try:
         result = await _fetch_serper(query, api_key, timeout=timeout, num_results=num_results)

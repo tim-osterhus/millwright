@@ -1,7 +1,7 @@
-"""Prime Agent session-to-session messaging skill.
+"""Millwright session-to-session messaging skill.
 
 All routing and sender identity live in the TypeScript daemon. These functions
-only call the host bridge exposed inside the Prime Agent IPython kernel.
+only call the host bridge exposed inside the Millwright IPython kernel.
 """
 
 from __future__ import annotations

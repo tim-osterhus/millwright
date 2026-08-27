@@ -162,7 +162,7 @@ export interface KernelManagerOptions {
 	pythonSkills?: readonly KernelPythonSkill[];
 	/** Persist/revive the user namespace across kernel restarts and session resume. */
 	snapshot?: KernelSnapshotConfig;
-	/** Default: "prime-agent". */
+	/** Default: "millwright". */
 	username?: string;
 }
 
@@ -537,7 +537,7 @@ function makeConnection(): { info: ConnectionInfo; path: string; tempDir: string
 		key: randomBytes(16).toString("hex"),
 		kernel_name: "python3",
 	};
-	const tempDir = mkdtempSync(join(tmpdir(), "prime-agent-kernel-"));
+	const tempDir = mkdtempSync(join(tmpdir(), "millwright-kernel-"));
 	const path = join(tempDir, "connection.json");
 	writeFileSync(path, JSON.stringify(info, null, 2), { mode: 0o600 });
 	return { info, path, tempDir };
@@ -631,7 +631,7 @@ export class KernelManager {
 			hostHandlers: options.hostHandlers,
 			pythonSkills: options.pythonSkills,
 			snapshot: options.snapshot,
-			username: options.username ?? "prime-agent",
+			username: options.username ?? "millwright",
 		};
 	}
 

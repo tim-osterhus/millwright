@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveKernelBootConcurrency } from "../src/core/kernel/boot-gate.js";
 
-const ENV = "PRIME_AGENT_MAX_CONCURRENT_KERNEL_BOOTS";
-const FORK_ENV = "PRIME_AGENT_KERNEL_FORKSERVER";
+const ENV = "MILLWRIGHT_MAX_CONCURRENT_KERNEL_BOOTS";
+const FORK_ENV = "MILLWRIGHT_KERNEL_FORKSERVER";
 
 describe("resolveKernelBootConcurrency", () => {
 	afterEach(() => {

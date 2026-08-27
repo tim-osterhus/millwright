@@ -64,7 +64,7 @@ describe("ACP mode end to end", () => {
 			clientCapabilities: {},
 		});
 		expect(init.protocolVersion).toBe(acp.PROTOCOL_VERSION);
-		expect(init.agentInfo?.name).toBe("prime-agent");
+		expect(init.agentInfo?.name).toBe("millwright");
 		expect(init._meta).toHaveProperty(PRIME_AGENT_META_NAMESPACE);
 
 		const session = await client.request("session/new", { cwd: harness.tempDir, mcpServers: [] });

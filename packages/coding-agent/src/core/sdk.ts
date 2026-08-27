@@ -158,7 +158,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	let resourceLoader = options.resourceLoader;
 
 	// Use provided or create AuthStorage and ModelRegistry
-	const authPath = options.agentDir ? join(agentDir, "auth.json") : undefined;
+	const authPath = join(agentDir, "auth.json");
 	const modelsPath = options.agentDir ? join(agentDir, "models.json") : undefined;
 	const authStorage = options.authStorage ?? AuthStorage.create(authPath);
 	const modelRegistry = options.modelRegistry ?? ModelRegistry.create(authStorage, modelsPath);

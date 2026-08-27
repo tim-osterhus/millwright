@@ -16,9 +16,9 @@ describe("fullscreen mode settings", () => {
 		}
 		mkdirSync(agentDir, { recursive: true });
 		mkdirSync(join(projectDir, ".prime", "agent"), { recursive: true });
-		savedEnv = process.env.PI_FULLSCREEN;
+		savedEnv = process.env.MILLWRIGHT_FULLSCREEN;
 		savedTermProgram = process.env.TERM_PROGRAM;
-		delete process.env.PI_FULLSCREEN;
+		delete process.env.MILLWRIGHT_FULLSCREEN;
 		delete process.env.TERM_PROGRAM;
 	});
 
@@ -27,9 +27,9 @@ describe("fullscreen mode settings", () => {
 			rmSync(testDir, { recursive: true });
 		}
 		if (savedEnv === undefined) {
-			delete process.env.PI_FULLSCREEN;
+			delete process.env.MILLWRIGHT_FULLSCREEN;
 		} else {
-			process.env.PI_FULLSCREEN = savedEnv;
+			process.env.MILLWRIGHT_FULLSCREEN = savedEnv;
 		}
 		if (savedTermProgram === undefined) delete process.env.TERM_PROGRAM;
 		else process.env.TERM_PROGRAM = savedTermProgram;
@@ -62,15 +62,15 @@ describe("fullscreen mode settings", () => {
 		expect(reloaded.getFullscreen()).toBe(false);
 	});
 
-	it("PI_FULLSCREEN env var overrides the setting in both directions", () => {
+	it("MILLWRIGHT_FULLSCREEN env var overrides the setting in both directions", () => {
 		const manager = SettingsManager.create(projectDir, agentDir);
 		manager.setFullscreen(false);
 
-		process.env.PI_FULLSCREEN = "1";
+		process.env.MILLWRIGHT_FULLSCREEN = "1";
 		expect(manager.getFullscreen()).toBe(true);
 
 		manager.setFullscreen(true);
-		process.env.PI_FULLSCREEN = "0";
+		process.env.MILLWRIGHT_FULLSCREEN = "0";
 		expect(manager.getFullscreen()).toBe(false);
 	});
 

@@ -132,7 +132,7 @@ describe("DaemonClient", () => {
 		firstSocket.emit("error", new Error("initial connect failed"));
 
 		const firstError = await firstAttempt;
-		expect(firstError.message).toContain("Failed to connect to the Prime Agent daemon: initial connect failed.");
+		expect(firstError.message).toContain("Failed to connect to the Millwright daemon: initial connect failed.");
 		expect(firstError.message).toContain("Socket: /tmp/prime-agent-missing.sock.");
 		expect(firstError.message).toContain("Daemon log:");
 		expect(firstSocket.listenerCount("data")).toBe(0);
@@ -143,7 +143,7 @@ describe("DaemonClient", () => {
 		netMock.sockets[1]!.emit("error", new Error("retry reached socket"));
 
 		await expect(secondAttempt).resolves.toMatchObject({
-			message: expect.stringContaining("Failed to connect to the Prime Agent daemon: retry reached socket."),
+			message: expect.stringContaining("Failed to connect to the Millwright daemon: retry reached socket."),
 		});
 	});
 
@@ -156,7 +156,7 @@ describe("DaemonClient", () => {
 		const firstSocket = netMock.sockets[0]!;
 
 		const timeoutRejection = expect(firstAttempt).resolves.toMatchObject({
-			message: expect.stringContaining("Timed out after 5ms connecting to the Prime Agent daemon."),
+			message: expect.stringContaining("Timed out after 5ms connecting to the Millwright daemon."),
 		});
 		await vi.advanceTimersByTimeAsync(5);
 		await timeoutRejection;
@@ -170,7 +170,7 @@ describe("DaemonClient", () => {
 		netMock.sockets[1]!.emit("error", new Error("retry reached socket"));
 
 		await expect(secondAttempt).resolves.toMatchObject({
-			message: expect.stringContaining("Failed to connect to the Prime Agent daemon: retry reached socket."),
+			message: expect.stringContaining("Failed to connect to the Millwright daemon: retry reached socket."),
 		});
 	});
 
@@ -406,7 +406,7 @@ describe("DaemonClient", () => {
 
 		await expect(request).rejects.toMatchObject({
 			message: expect.stringContaining(
-				'Cannot send daemon command "list" because the Prime Agent daemon is not connected.',
+				'Cannot send daemon command "list" because the Millwright daemon is not connected.',
 			),
 		});
 		await expect(request).rejects.toMatchObject({
@@ -648,7 +648,7 @@ describe("DaemonClient", () => {
 		socket.emit("close");
 
 		expect(closed).toHaveLength(1);
-		expect(closed[0]?.message).toContain("Connection to the Prime Agent daemon closed.");
+		expect(closed[0]?.message).toContain("Connection to the Millwright daemon closed.");
 		expect(closed[0]?.message).toContain("Socket: /tmp/prime-agent.sock.");
 		expect(closed[0]?.message).toContain("Daemon log:");
 		expect(client.isConnected).toBe(false);

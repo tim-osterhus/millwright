@@ -1,6 +1,7 @@
+import { PRODUCT_PACKAGE_NAME } from "../config.js";
 import { getPiUserAgent } from "./pi-user-agent.js";
 
-const DEFAULT_PRIME_AGENT_DOWNLOAD_BASE_URL = "https://pub-728493de92a943e2a9b2d17b4719f318.r2.dev";
+const DEFAULT_MILLWRIGHT_DOWNLOAD_BASE_URL = "https://pub-728493de92a943e2a9b2d17b4719f318.r2.dev";
 const STABLE_VERSION_MANIFEST_PATH = "latest.json";
 const BETA_VERSION_MANIFEST_PATH = "beta.json";
 const DEFAULT_VERSION_CHECK_TIMEOUT_MS = 10000;
@@ -86,7 +87,7 @@ export function isNewerPackageVersion(candidateVersion: string, currentVersion: 
 }
 
 function getPrimeAgentDownloadBaseUrl(): string {
-	return (process.env.PRIME_AGENT_DOWNLOAD_BASE_URL?.trim() || DEFAULT_PRIME_AGENT_DOWNLOAD_BASE_URL).replace(
+	return (process.env.MILLWRIGHT_DOWNLOAD_BASE_URL?.trim() || DEFAULT_MILLWRIGHT_DOWNLOAD_BASE_URL).replace(
 		/\/+$/,
 		"",
 	);
@@ -105,9 +106,11 @@ function resolveReleaseUrl(baseUrl: string, pathOrUrl: string): string | undefin
 	const trimmed = pathOrUrl.trim();
 	if (!trimmed) return undefined;
 	try {
-		return new URL(trimmed).toString();
+		const basePrefix = `${baseUrl.replace(/\/+$/, "")}/`;
+		const resolved = new URL(trimmed, basePrefix).toString();
+		return resolved.startsWith(basePrefix) ? resolved : undefined;
 	} catch {
-		return `${baseUrl}/${trimmed.replace(/^\/+/, "")}`;
+		return undefined;
 	}
 }
 
@@ -115,7 +118,7 @@ export async function getLatestPiRelease(
 	currentVersion: string,
 	options: { timeoutMs?: number } = {},
 ): Promise<LatestPiRelease | undefined> {
-	if (process.env.PI_SKIP_VERSION_CHECK || process.env.PI_OFFLINE) return undefined;
+	if (process.env.MILLWRIGHT_SKIP_VERSION_CHECK || process.env.MILLWRIGHT_OFFLINE) return undefined;
 
 	const baseUrl = getPrimeAgentDownloadBaseUrl();
 	const response = await fetch(`${baseUrl}/${getReleaseManifestPath(currentVersion)}`, {
@@ -143,6 +146,8 @@ export async function getLatestPiRelease(
 				? data.packageName.trim()
 				: undefined;
 	const installSpec = typeof data.tarball === "string" ? resolveReleaseUrl(baseUrl, data.tarball) : undefined;
+	if (packageName && packageName !== PRODUCT_PACKAGE_NAME) return undefined;
+	if (typeof data.tarball === "string" && (!installSpec || packageName !== PRODUCT_PACKAGE_NAME)) return undefined;
 	const release: LatestPiRelease = { version: normalizeReleaseVersion(data.version) };
 	if (packageName) {
 		release.packageName = packageName;

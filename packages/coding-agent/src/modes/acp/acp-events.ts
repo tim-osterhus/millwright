@@ -4,10 +4,10 @@ import type { PrimeAgentIpythonMeta, PrimeAgentSessionMeta } from "./acp-meta.js
 import { primeAgentMeta } from "./acp-meta.js";
 
 /**
- * Translate prime-agent session events into ACP `session/update` payloads.
+ * Translate Millwright session events into ACP `session/update` payloads.
  *
  * Kept as a pure function so the mapping is testable without a live ACP client
- * or a running agent. Returning an array lets one prime-agent event fan out to
+ * or a running agent. Returning an array lets one Millwright event fan out to
  * several ACP updates (or none, for events ACP has no place for).
  */
 
@@ -19,7 +19,7 @@ export interface AcpSessionUpdate {
 	[key: string]: unknown;
 }
 
-/** prime-agent's model-facing tool is IPython; bash is the secondary escape hatch. */
+/** Millwright's model-facing tool is IPython; bash is the secondary escape hatch. */
 export const IPYTHON_TOOL_NAME = "ipython";
 
 export function acpToolKind(toolName: string): AcpToolKind {
@@ -239,7 +239,7 @@ export function acpUpdatesForSessionEvent(
 			];
 
 		// Goals, continual-harness refinement, and agent-to-agent messaging are
-		// prime-agent concepts with no ACP counterpart. They are still part of a
+		// Millwright concepts with no ACP counterpart. They are still part of a
 		// turn's observable behavior, so they surface as namespaced metadata
 		// instead of being dropped.
 		case "goal_update":
@@ -300,7 +300,7 @@ export function acpUpdatesForSessionEvent(
 	}
 }
 
-const BASH_TOOL_CALL_PREFIX = "prime-agent-bash";
+const BASH_TOOL_CALL_PREFIX = "millwright-bash";
 
 export function bashToolCallId(runId: string | undefined): string {
 	return runId ? `${BASH_TOOL_CALL_PREFIX}-${runId}` : BASH_TOOL_CALL_PREFIX;

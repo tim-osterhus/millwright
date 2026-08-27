@@ -513,7 +513,7 @@ export function idleEvictionSweepIntervalMs(idleEvictionMinutes: IdleEvictionMin
 function workerSocketPath(supervisorSocketPath: string, workerId: string): string {
 	const key = descriptorKey(supervisorSocketPath);
 	if (process.platform === "win32") {
-		return `\\\\.\\pipe\\prime-agent-worker-${key}-${workerId.slice(0, 12)}`;
+		return `\\\\.\\pipe\\millwright-worker-${key}-${workerId.slice(0, 12)}`;
 	}
 	return join(defaultDaemonSocketDir(), `worker-${key}-${workerId.slice(0, 12)}.sock`);
 }
@@ -710,7 +710,7 @@ export class DaemonSupervisor {
 			}
 			this.scheduleIdleEvictionSweep();
 			await this.ownership.updatePhase("owner");
-			this.log(`Prime Agent daemon supervisor ${this.generation} listening on ${this.socketPath}`);
+			this.log(`Millwright daemon supervisor ${this.generation} listening on ${this.socketPath}`);
 			this.markReady();
 		} catch (error) {
 			const startupError = error instanceof Error ? error : new Error(String(error));

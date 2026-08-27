@@ -252,7 +252,7 @@ describe("herdrAgentStateExtension", () => {
 		handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
 		await waitForRequests(1);
 		expect(requests[0]?.method).toBe("pane.report_agent");
-		expect(requests[0]?.params.agent).toBe("prime-agent");
+		expect(requests[0]?.params.agent).toBe("millwright");
 		expect(requests[0]?.params.pane_id).toBe("w1:p1");
 		expect(requests[0]?.params.state).toBe("idle");
 		expect(requests[0]?.params.agent_session_path).toBe("/tmp/session.jsonl");
@@ -274,7 +274,7 @@ describe("herdrAgentStateExtension", () => {
 		await handlers.get("session_shutdown")?.[0]?.({ type: "session_shutdown", reason: "quit" }, ctx);
 		await waitForRequests(4);
 		expect(requests[3]?.method).toBe("pane.release_agent");
-		expect(requests[3]?.params.agent).toBe("prime-agent");
+		expect(requests[3]?.params.agent).toBe("millwright");
 	});
 
 	it("unsubscribes the shared-bus herdr:blocked listener on shutdown", async () => {

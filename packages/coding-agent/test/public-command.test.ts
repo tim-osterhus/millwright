@@ -79,7 +79,7 @@ describe("public command routing", () => {
 	it("rejects extra attach operands", async () => {
 		await expect(handlePublicCommand(["attach", "worker", "extra"])).resolves.toMatchObject({ handled: true });
 		expect(process.exitCode).toBe(1);
-		expect(console.error).toHaveBeenCalledWith(expect.stringContaining("prime-agent attach <agent>"));
+		expect(console.error).toHaveBeenCalledWith(expect.stringContaining("millwright attach <agent>"));
 	});
 
 	it("rejects conflicting session selectors when attaching", async () => {
@@ -165,7 +165,7 @@ describe("public command routing", () => {
 		}
 
 		expect(mocks.packageCommands).toEqual([]);
-		expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Use "prime-agent update [--force]"'));
+		expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Use "millwright update [--force]"'));
 	});
 
 	it("directs legacy package-update forms to the package command", async () => {
@@ -174,7 +174,7 @@ describe("public command routing", () => {
 		await handlePublicCommand(["update", "--extension", "npm:@example/tools"]);
 
 		expect(mocks.packageCommands).toEqual([]);
-		expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Use "prime-agent package update [source]"'));
+		expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Use "millwright package update [source]"'));
 	});
 
 	it("explains that combined legacy updates are now separate", async () => {
@@ -190,14 +190,14 @@ describe("public command routing", () => {
 		}
 
 		expect(mocks.packageCommands).toEqual([]);
-		expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Use "prime-agent update"'));
+		expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Use "millwright update"'));
 	});
 
 	it("directs package uninstall to package remove", async () => {
 		await handlePublicCommand(["package", "uninstall", "npm:@example/tools"]);
 
 		expect(mocks.packageCommands).toEqual([]);
-		expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Use "prime-agent package remove"'));
+		expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Use "millwright package remove"'));
 		expect(console.error).not.toHaveBeenCalledWith(expect.stringContaining("package install"));
 	});
 
@@ -229,7 +229,7 @@ describe("public command routing", () => {
 		await handlePublicCommand(["package", "list", "ignored-source"]);
 
 		expect(mocks.packageCommands).toEqual([]);
-		expect(console.error).toHaveBeenCalledWith(expect.stringContaining("prime-agent package list"));
+		expect(console.error).toHaveBeenCalledWith(expect.stringContaining("millwright package list"));
 	});
 
 	it("uses force only when explicitly requested for full shutdown", async () => {
@@ -249,17 +249,17 @@ describe("public command routing", () => {
 	it("rejects the old daemon hierarchy with migration guidance", async () => {
 		await expect(handlePublicCommand(["daemon", "list"])).resolves.toMatchObject({ handled: true });
 		expect(process.exitCode).toBe(1);
-		expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Run "prime-agent help"'));
+		expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Run "millwright help"'));
 	});
 
 	it("shows migration guidance when help targets removed commands", async () => {
 		const cases: Array<[path: string[], hint: string]> = [
-			[["daemon"], 'Run "prime-agent help"'],
-			[["install"], 'Use "prime-agent package install"'],
-			[["remove"], 'Use "prime-agent package remove"'],
-			[["uninstall"], 'Use "prime-agent package remove"'],
-			[["manage"], 'Use "prime-agent agents"'],
-			[["app", "update"], 'Use "prime-agent update"'],
+			[["daemon"], 'Run "millwright help"'],
+			[["install"], 'Use "millwright package install"'],
+			[["remove"], 'Use "millwright package remove"'],
+			[["uninstall"], 'Use "millwright package remove"'],
+			[["manage"], 'Use "millwright agents"'],
+			[["app", "update"], 'Use "millwright update"'],
 		];
 
 		for (const [path, hint] of cases) {
@@ -302,9 +302,9 @@ describe("public command routing", () => {
 		await handlePublicCommand(["doctor", "--fix", "--help"]);
 		await handlePublicCommand(["package", "install", "--local", "--help"]);
 
-		expect(console.log).toHaveBeenNthCalledWith(1, expect.stringContaining("prime-agent list [--all] [--json]"));
-		expect(console.log).toHaveBeenNthCalledWith(2, expect.stringContaining("prime-agent doctor [--fix] [--json]"));
-		expect(console.log).toHaveBeenNthCalledWith(3, expect.stringContaining("prime-agent package install <source>"));
+		expect(console.log).toHaveBeenNthCalledWith(1, expect.stringContaining("millwright list [--all] [--json]"));
+		expect(console.log).toHaveBeenNthCalledWith(2, expect.stringContaining("millwright doctor [--fix] [--json]"));
+		expect(console.log).toHaveBeenNthCalledWith(3, expect.stringContaining("millwright package install <source>"));
 		expect(console.error).not.toHaveBeenCalled();
 	});
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import subprocess
@@ -7,10 +8,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from rlm import harness as package_harness
 from rlm import rlm as callable_rlm
 from rlm.harness import HarnessState, get_harness_state
+
+harness_module = importlib.import_module("rlm.harness")
 
 PYTHON_REFERENCE = {
     "type": "python",
@@ -21,6 +25,54 @@ PYTHON_REFERENCE = {
 
 
 class HarnessStateTest(unittest.TestCase):
+    def test_default_agent_dir_uses_millwright_and_ignores_legacy_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            legacy = Path(temp_dir) / ".prime"
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "HOME": temp_dir,
+                    "PRIME_AGENT_CODING_AGENT_DIR": str(legacy),
+                    "PI_CODING_AGENT_DIR": str(legacy),
+                },
+                clear=False,
+            ):
+                os.environ.pop("MILLWRIGHT_CODING_AGENT_DIR", None)
+                self.assertEqual(harness_module._agent_dir(), Path(temp_dir) / ".millwright")
+
+    def test_default_agent_dir_rejects_symlink_into_legacy_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            legacy = root / ".prime"
+            legacy.mkdir()
+            (root / ".millwright").symlink_to(legacy, target_is_directory=True)
+            with mock.patch.dict(os.environ, {"HOME": temp_dir}, clear=False):
+                os.environ.pop("MILLWRIGHT_CODING_AGENT_DIR", None)
+                with self.assertRaisesRegex(ValueError, "legacy|unsafe"):
+                    harness_module._agent_dir()
+
+    def test_agent_dir_rejects_relative_legacy_and_symlink_escaped_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            legacy = root / ".prime"
+            safe = root / "safe"
+            legacy.mkdir()
+            safe.mkdir()
+            (safe / "legacy-link").symlink_to(legacy, target_is_directory=True)
+            unsafe = [
+                "relative",
+                str(legacy),
+                str(legacy / "child"),
+                str(root / ".millrace-cli" / "child"),
+                str(safe / "legacy-link" / "child"),
+            ]
+            for value in unsafe:
+                with self.subTest(value=value), mock.patch.dict(
+                    os.environ, {"MILLWRIGHT_CODING_AGENT_DIR": value}, clear=False
+                ):
+                    with self.assertRaisesRegex(ValueError, "absolute|legacy|unsafe"):
+                        harness_module._agent_dir()
+
     def test_crud_for_all_entry_kinds(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             state = HarnessState(Path(temp_dir) / "harness_state.json")
@@ -381,20 +433,20 @@ class HarnessStateTest(unittest.TestCase):
             )
 
     def test_in_memory_state_global_flag_uses_default_global_store(self) -> None:
-        previous_agent_dir = os.environ.get("PRIME_AGENT_CODING_AGENT_DIR")
+        previous_agent_dir = os.environ.get("MILLWRIGHT_CODING_AGENT_DIR")
         previous_global = os.environ.get("RLM_GLOBAL_HARNESS_STATE_DIR")
         with tempfile.TemporaryDirectory() as temp_dir:
             agent_dir = Path(temp_dir) / "agent"
-            os.environ["PRIME_AGENT_CODING_AGENT_DIR"] = str(agent_dir)
+            os.environ["MILLWRIGHT_CODING_AGENT_DIR"] = str(agent_dir)
             os.environ.pop("RLM_GLOBAL_HARNESS_STATE_DIR", None)
             try:
                 state = HarnessState(in_memory=True)
                 global_entry = state.create_memory("Default global", "persisted", id="default_global", global_=True)
             finally:
                 if previous_agent_dir is None:
-                    os.environ.pop("PRIME_AGENT_CODING_AGENT_DIR", None)
+                    os.environ.pop("MILLWRIGHT_CODING_AGENT_DIR", None)
                 else:
-                    os.environ["PRIME_AGENT_CODING_AGENT_DIR"] = previous_agent_dir
+                    os.environ["MILLWRIGHT_CODING_AGENT_DIR"] = previous_agent_dir
                 if previous_global is None:
                     os.environ.pop("RLM_GLOBAL_HARNESS_STATE_DIR", None)
                 else:

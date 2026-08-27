@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
-import { CONFIG_DIR_NAME, getAgentDir } from "../config.js";
+import { getAgentDir, getWorkspaceStateDir } from "../config.js";
 
 const RECENT_MODELS_LIMIT = 20;
 export const DEFAULT_IDLE_EVICTION_MINUTES = 90;
@@ -151,8 +151,8 @@ export interface Settings {
 	prompts?: string[]; // Array of local prompt template paths or directories
 	themes?: string[]; // Array of local theme file paths or directories
 	enableSkillCommands?: boolean; // default: true - register skills as /skill:name commands
-	bundledSkills?: BundledSkillsSettings; // Configure built-in skills shipped with Prime Agent
-	enableBuiltinSkills?: boolean; // default: true - load built-in skills shipped with prime-agent
+	bundledSkills?: BundledSkillsSettings; // Configure built-in skills shipped with Millwright
+	enableBuiltinSkills?: boolean; // default: true - load built-in skills shipped with Millwright
 	terminal?: TerminalSettings;
 	images?: ImageSettings;
 	enabledModels?: string[]; // Model patterns for cycling (same format as --models CLI flag)
@@ -223,7 +223,7 @@ export class FileSettingsStorage implements SettingsStorage {
 
 	constructor(cwd: string, agentDir: string) {
 		this.globalSettingsPath = join(agentDir, "settings.json");
-		this.projectSettingsPath = join(cwd, CONFIG_DIR_NAME, "settings.json");
+		this.projectSettingsPath = join(getWorkspaceStateDir(cwd), "settings.json");
 	}
 
 	private acquireLockSyncWithRetry(path: string): () => void {
@@ -884,7 +884,7 @@ export class SettingsManager {
 		const turnInterval = this.settings.autoRefine?.turnInterval;
 		const cooldownMs = this.settings.autoRefine?.cooldownMs;
 		return {
-			enabled: this.settings.autoRefine?.enabled ?? true,
+			enabled: this.settings.autoRefine?.enabled ?? false,
 			turnInterval: Math.max(
 				1,
 				typeof turnInterval === "number" && Number.isFinite(turnInterval) ? turnInterval : 25,
@@ -1124,7 +1124,7 @@ export class SettingsManager {
 		if (this.settings.terminal?.clearOnShrink !== undefined) {
 			return this.settings.terminal.clearOnShrink;
 		}
-		return process.env.PI_CLEAR_ON_SHRINK === "1";
+		return process.env.MILLWRIGHT_CLEAR_ON_SHRINK === "1";
 	}
 
 	setClearOnShrink(enabled: boolean): void {
@@ -1138,8 +1138,8 @@ export class SettingsManager {
 
 	getFullscreen(): boolean {
 		// Env var overrides the setting (both directions) for one-off runs
-		if (process.env.PI_FULLSCREEN !== undefined) {
-			return process.env.PI_FULLSCREEN === "1";
+		if (process.env.MILLWRIGHT_FULLSCREEN !== undefined) {
+			return process.env.MILLWRIGHT_FULLSCREEN === "1";
 		}
 		return this.settings.terminal?.fullscreen ?? true;
 	}
@@ -1232,7 +1232,7 @@ export class SettingsManager {
 	}
 
 	getShowHardwareCursor(): boolean {
-		return this.settings.showHardwareCursor ?? process.env.PI_HARDWARE_CURSOR === "1";
+		return this.settings.showHardwareCursor ?? process.env.MILLWRIGHT_HARDWARE_CURSOR === "1";
 	}
 
 	setShowHardwareCursor(enabled: boolean): void {

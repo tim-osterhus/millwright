@@ -1,9 +1,9 @@
-"""Persistent harness-state helpers for Prime Agent's RLM kernel.
+"""Persistent harness-state helpers for Millwright's RLM kernel.
 
 The state model is intentionally small: it records prompt notes, memory,
 skills, subagent specs, and refinement events in the session-local harness
 store by default; pass ``global_=True`` for the cross-session global store.
-Execution still belongs to Prime Agent's TypeScript host and the existing
+Execution still belongs to Millwright's TypeScript host and the existing
 ``rlm.run`` recursion bridge.
 """
 
@@ -36,12 +36,16 @@ def _slug(raw: str, fallback: str) -> str:
 
 
 def _agent_dir() -> Path:
-    raw = (
-        os.environ.get("PRIME_AGENT_CODING_AGENT_DIR")
-        or os.environ.get("PI_CODING_AGENT_DIR")
-        or str(Path.home() / ".prime" / "agent")
-    )
-    return Path(raw).expanduser().resolve()
+    raw = os.environ.get("MILLWRIGHT_CODING_AGENT_DIR")
+    if raw is None:
+        raw = str(Path.home() / ".millwright")
+    candidate = Path(raw.strip())
+    if not candidate.is_absolute():
+        raise ValueError("MILLWRIGHT_CODING_AGENT_DIR must be an absolute path")
+    canonical = candidate.resolve(strict=False)
+    if any(part in {".prime", ".millrace-cli"} for part in canonical.parts):
+        raise ValueError("MILLWRIGHT_CODING_AGENT_DIR cannot target a legacy or unsafe state root")
+    return candidate
 
 
 def _resolve_global_flag(global_: bool = False, extra: dict[str, Any] | None = None) -> bool:

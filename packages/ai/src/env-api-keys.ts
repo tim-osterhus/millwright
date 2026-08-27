@@ -1,13 +1,20 @@
-import type { existsSync, readFileSync } from "node:fs";
+import type { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import type { homedir } from "node:os";
-import type { join } from "node:path";
+import type { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { KnownProvider } from "./types.js";
 
 // NEVER convert to top-level runtime imports - breaks browser/Vite builds
 let _existsSync: typeof existsSync | null = null;
+let _lstatSync: typeof lstatSync | null = null;
 let _readFileSync: typeof readFileSync | null = null;
+let _realpathSync: typeof realpathSync | null = null;
 let _homedir: typeof homedir | null = null;
+let _basename: typeof basename | null = null;
+let _dirname: typeof dirname | null = null;
+let _isAbsolute: typeof isAbsolute | null = null;
 let _join: typeof join | null = null;
+let _resolve: typeof resolve | null = null;
+let _sep: typeof sep | null = null;
 
 type DynamicImport = (specifier: string) => Promise<unknown>;
 
@@ -20,13 +27,28 @@ const NODE_PATH_SPECIFIER = "node:" + "path";
 if (typeof process !== "undefined" && (process.versions?.node || process.versions?.bun)) {
 	dynamicImport(NODE_FS_SPECIFIER).then((m) => {
 		_existsSync = (m as { existsSync: typeof existsSync }).existsSync;
+		_lstatSync = (m as { lstatSync: typeof lstatSync }).lstatSync;
 		_readFileSync = (m as { readFileSync: typeof readFileSync }).readFileSync;
+		_realpathSync = (m as { realpathSync: typeof realpathSync }).realpathSync;
 	});
 	dynamicImport(NODE_OS_SPECIFIER).then((m) => {
 		_homedir = (m as { homedir: typeof homedir }).homedir;
 	});
 	dynamicImport(NODE_PATH_SPECIFIER).then((m) => {
-		_join = (m as { join: typeof join }).join;
+		const pathModule = m as {
+			basename: typeof basename;
+			dirname: typeof dirname;
+			isAbsolute: typeof isAbsolute;
+			join: typeof join;
+			resolve: typeof resolve;
+			sep: typeof sep;
+		};
+		_basename = pathModule.basename;
+		_dirname = pathModule.dirname;
+		_isAbsolute = pathModule.isAbsolute;
+		_join = pathModule.join;
+		_resolve = pathModule.resolve;
+		_sep = pathModule.sep;
 	});
 }
 
@@ -213,13 +235,50 @@ export function getEnvApiKey(provider: string): string | undefined {
 	return undefined;
 }
 
-// PRIME_TEAM_ID env var, falling back to team_id in ~/.prime/config.json.
+function resolveSafeMillwrightAgentDir(rawPath: string): string | undefined {
+	if (!_lstatSync || !_realpathSync || !_basename || !_dirname || !_isAbsolute || !_resolve || !_sep) {
+		return undefined;
+	}
+	const candidate = rawPath.trim();
+	if (!candidate || !_isAbsolute(candidate)) return undefined;
+
+	let existingAncestor = _resolve(candidate);
+	const unresolvedSuffix: string[] = [];
+	while (true) {
+		try {
+			_lstatSync(existingAncestor);
+			break;
+		} catch {
+			const parent = _dirname(existingAncestor);
+			if (parent === existingAncestor) return undefined;
+			unresolvedSuffix.unshift(_basename(existingAncestor));
+			existingAncestor = parent;
+		}
+	}
+
+	let canonicalAncestor: string;
+	try {
+		canonicalAncestor = _realpathSync(existingAncestor);
+	} catch {
+		return undefined;
+	}
+	const canonicalPath = _resolve(canonicalAncestor, ...unresolvedSuffix);
+	if (canonicalPath.split(_sep).some((segment) => segment === ".prime" || segment === ".millrace-cli")) {
+		return undefined;
+	}
+	return _resolve(candidate);
+}
+
+// PRIME_TEAM_ID env var, falling back to team_id in Millwright-scoped state.
 export function getPrimeTeamId(): string | undefined {
 	const fromEnv = process.env.PRIME_TEAM_ID || getProcEnv("PRIME_TEAM_ID");
 	if (fromEnv?.trim()) return fromEnv.trim();
 
 	if (!_existsSync || !_readFileSync || !_homedir || !_join) return undefined;
-	const configPath = _join(_homedir(), ".prime", "config.json");
+	const configuredAgentDir = process.env.MILLWRIGHT_CODING_AGENT_DIR || getProcEnv("MILLWRIGHT_CODING_AGENT_DIR");
+	const agentDir = resolveSafeMillwrightAgentDir(configuredAgentDir?.trim() || _join(_homedir(), ".millwright"));
+	if (!agentDir) return undefined;
+	const configPath = _join(agentDir, "providers", "prime", "config.json");
 	if (!_existsSync(configPath)) return undefined;
 	try {
 		const parsed = JSON.parse(_readFileSync(configPath, "utf-8")) as unknown;

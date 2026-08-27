@@ -4,11 +4,13 @@
 	"description": "Coding agent CLI with IPython-backed tools and session management",
 	"type": "module",
 	"piConfig": {
-		"name": "prime-agent",
-		"configDir": ".prime/agent"
+		"name": "millwright",
+		"displayName": "Millwright",
+		"packageName": "millwright-agent",
+		"configDir": ".millwright"
 	},
 	"bin": {
-		"pi": "dist/bundle/cli.js"
+		"millwright": "dist/bundle/cli.js"
 	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -99,7 +101,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/PrimeIntellect-ai/prime-agent.git",
+		"url": "git+https://github.com/tim-osterhus/millwright.git",
 		"directory": "packages/coding-agent"
 	},
 	"engines": {

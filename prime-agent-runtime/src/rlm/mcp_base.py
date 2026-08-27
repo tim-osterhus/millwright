@@ -44,7 +44,7 @@ class NotEnabled(RuntimeError):
         self.server = server
         super().__init__(
             f"The '{server}' integration is not enabled: no credentials found. "
-            f"Tell the user to run `/mcp login {server}` in Prime Agent to connect it. "
+            f"Tell the user to run `/mcp login {server}` in Millwright to connect it. "
             f"Do not ask them to set environment variables."
         )
 
@@ -54,15 +54,17 @@ class McpToolError(RuntimeError):
 
 
 def _agent_dir() -> Path:
-    """Resolve the Prime Agent config dir the same way the rest of the runtime does."""
-    raw = (
-        os.environ.get("PRIME_AGENT_CODING_AGENT_DIR")
-        or os.environ.get("PI_CODING_AGENT_DIR")
-        or str(Path.home() / ".prime" / "agent")
-    )
-    # resolve() so a relative env override reads auth.json from the right place,
-    # not relative to the kernel's cwd.
-    return Path(raw).expanduser().resolve()
+    """Resolve and validate Millwright's product-owned state directory."""
+    raw = os.environ.get("MILLWRIGHT_CODING_AGENT_DIR")
+    if raw is None:
+        raw = str(Path.home() / ".millwright")
+    candidate = Path(raw.strip())
+    if not candidate.is_absolute():
+        raise ValueError("MILLWRIGHT_CODING_AGENT_DIR must be an absolute path")
+    canonical = candidate.resolve(strict=False)
+    if any(part in {".prime", ".millrace-cli"} for part in canonical.parts):
+        raise ValueError("MILLWRIGHT_CODING_AGENT_DIR cannot target a legacy or unsafe state root")
+    return candidate
 
 
 def _read_auth(provider: str) -> dict[str, Any] | None:

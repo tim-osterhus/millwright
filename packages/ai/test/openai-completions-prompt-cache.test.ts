@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getModel } from "../src/models.js";
 import { streamOpenAICompletions } from "../src/providers/openai-completions.js";
@@ -63,20 +66,28 @@ vi.mock("openai", () => {
 });
 
 describe("openai-completions prompt caching", () => {
-	const originalEnv = process.env.PI_CACHE_RETENTION;
+	const originalEnv = new Map(
+		["HOME", "MILLWRIGHT_CACHE_RETENTION", "MILLWRIGHT_CODING_AGENT_DIR", "PI_CACHE_RETENTION", "PRIME_TEAM_ID"].map(
+			(name) => [name, process.env[name]],
+		),
+	);
+	const temporaryRoots: string[] = [];
 
 	beforeEach(() => {
 		mockState.lastParams = undefined;
 		mockState.lastClientOptions = undefined;
 		delete process.env.PI_CACHE_RETENTION;
+		delete process.env.MILLWRIGHT_CACHE_RETENTION;
+		delete process.env.MILLWRIGHT_CODING_AGENT_DIR;
+		delete process.env.PRIME_TEAM_ID;
 	});
 
 	afterEach(() => {
-		if (originalEnv === undefined) {
-			delete process.env.PI_CACHE_RETENTION;
-		} else {
-			process.env.PI_CACHE_RETENTION = originalEnv;
+		for (const [name, value] of originalEnv) {
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
 		}
+		for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 	});
 
 	function createModel(overrides: Partial<Model<"openai-completions">> = {}): Model<"openai-completions"> {
@@ -143,12 +154,52 @@ describe("openai-completions prompt caching", () => {
 		expect(payload?.prompt_cache_retention).toBeUndefined();
 	});
 
-	it("uses PI_CACHE_RETENTION for direct OpenAI requests", async () => {
+	it("ignores the inherited PI_CACHE_RETENTION alias", async () => {
 		process.env.PI_CACHE_RETENTION = "long";
 		const { payload } = await captureRequest({ sessionId: "session-env" });
 
 		expect(payload?.prompt_cache_key).toBe("session-env");
+		expect(payload?.prompt_cache_retention).toBeUndefined();
+	});
+
+	it("uses MILLWRIGHT_CACHE_RETENTION for direct OpenAI requests", async () => {
+		process.env.MILLWRIGHT_CACHE_RETENTION = "long";
+		const { payload } = await captureRequest({ sessionId: "session-env" });
+
+		expect(payload?.prompt_cache_key).toBe("session-env");
 		expect(payload?.prompt_cache_retention).toBe("24h");
+	});
+
+	it("sources Prime team fallback only from the Millwright state root", async () => {
+		const root = mkdtempSync(join(tmpdir(), "millwright-prime-team-"));
+		temporaryRoots.push(root);
+		const agentDir = join(root, "explicit-agent");
+		const legacyHome = join(root, "legacy-home");
+		mkdirSync(join(agentDir, "providers", "prime"), { recursive: true });
+		mkdirSync(join(legacyHome, ".prime"), { recursive: true });
+		writeFileSync(join(agentDir, "providers", "prime", "config.json"), '{"team_id":"millwright-team"}\n');
+		writeFileSync(join(legacyHome, ".prime", "config.json"), '{"team_id":"legacy-team"}\n');
+		process.env.HOME = legacyHome;
+		process.env.MILLWRIGHT_CODING_AGENT_DIR = agentDir;
+
+		const model = createModel({ provider: "prime-inference", baseUrl: "https://api.pinference.test/v1" });
+		const { headers } = await captureRequest(undefined, model);
+
+		expect(headers["X-Prime-Team-ID"]).toBe("millwright-team");
+	});
+
+	it("rejects unsafe Millwright state overrides before reading Prime team fallback", async () => {
+		const root = mkdtempSync(join(tmpdir(), "millwright-prime-team-unsafe-"));
+		temporaryRoots.push(root);
+		const legacyDir = join(root, ".prime");
+		mkdirSync(join(legacyDir, "providers", "prime"), { recursive: true });
+		writeFileSync(join(legacyDir, "providers", "prime", "config.json"), '{"team_id":"legacy-team"}\n');
+		process.env.MILLWRIGHT_CODING_AGENT_DIR = legacyDir;
+
+		const model = createModel({ provider: "prime-inference", baseUrl: "https://api.pinference.test/v1" });
+		const { headers } = await captureRequest(undefined, model);
+
+		expect(headers["X-Prime-Team-ID"]).toBeUndefined();
 	});
 
 	it("sends known session-affinity headers when compat.sendSessionAffinityHeaders is enabled", async () => {

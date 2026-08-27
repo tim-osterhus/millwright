@@ -159,7 +159,7 @@ export class StaleDaemonError extends Error {
 			: `Daemon: unknown build on ${socketPath}`;
 		const client = getDaemonRuntimeIdentity();
 		super(
-			`An incompatible Prime Agent daemon is running.\n\n${daemonIdentity}\n` +
+			`An incompatible Millwright daemon is running.\n\n${daemonIdentity}\n` +
 				`Client: v${VERSION}, protocol ${DAEMON_PROTOCOL_VERSION}, schema ${DAEMON_SCHEMA_ID}, build ${client.buildId}, ` +
 				`executable ${client.launcherPath ?? client.entrypointPath ?? client.executablePath}\n\nRun:\n` +
 				`${formatCurrentCliCommand(["shutdown", "--force"])}\n\nThen retry the original command.`,
@@ -399,11 +399,11 @@ async function ensureDaemonRunning(socketPath: string, spawnCwd?: string): Promi
 		}
 		const logTail = readDaemonLogTail(socketPath, logOffset);
 		if (childFailure.type === "error") {
-			throw new Error(`Failed to spawn Prime Agent daemon: ${childFailure.error.message}.${logTail}`);
+			throw new Error(`Failed to spawn Millwright daemon: ${childFailure.error.message}.${logTail}`);
 		}
 		const signal = childFailure.signal ? `, signal ${childFailure.signal}` : "";
 		throw new Error(
-			`Prime Agent daemon exited during startup (code ${childFailure.code ?? "unknown"}${signal}).${logTail}`,
+			`Millwright daemon exited during startup (code ${childFailure.code ?? "unknown"}${signal}).${logTail}`,
 		);
 	};
 
@@ -563,7 +563,7 @@ export function shouldStartDaemonEarly(args: readonly string[], startupBenchmark
 }
 
 export function maybeStartDaemonEarly(args: readonly string[]): void {
-	const benchmarkFlag = (process.env.PI_STARTUP_BENCHMARK ?? "").toLowerCase();
+	const benchmarkFlag = (process.env.MILLWRIGHT_STARTUP_BENCHMARK ?? "").toLowerCase();
 	const startupBenchmark = benchmarkFlag === "1" || benchmarkFlag === "true" || benchmarkFlag === "yes";
 	if (!shouldStartDaemonEarly(args, startupBenchmark)) {
 		return;

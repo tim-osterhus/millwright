@@ -26,6 +26,48 @@ import {
 } from "./utils.js";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
+const MILLWRIGHT_AGENT_DIR_ENV = "MILLWRIGHT_CODING_AGENT_DIR";
+const LEGACY_STATE_SEGMENTS = new Set([".prime", ".millrace-cli"]);
+
+function pathEntryExists(candidate: string): boolean {
+	try {
+		fs.lstatSync(candidate);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Resolve the product-owned state root used by TUI diagnostics. */
+function getMillwrightStateDir(): string {
+	const configured = process.env[MILLWRIGHT_AGENT_DIR_ENV]?.trim();
+	const candidate = configured || path.join(os.homedir(), ".millwright");
+	if (!path.isAbsolute(candidate)) {
+		throw new Error(`${MILLWRIGHT_AGENT_DIR_ENV} must be an absolute path`);
+	}
+
+	let existingAncestor = path.resolve(candidate);
+	const unresolvedSuffix: string[] = [];
+	while (!pathEntryExists(existingAncestor)) {
+		const parent = path.dirname(existingAncestor);
+		if (parent === existingAncestor) break;
+		unresolvedSuffix.unshift(path.basename(existingAncestor));
+		existingAncestor = parent;
+	}
+
+	let canonicalAncestor: string;
+	try {
+		canonicalAncestor = fs.realpathSync(existingAncestor);
+	} catch {
+		throw new Error(`${MILLWRIGHT_AGENT_DIR_ENV} cannot resolve its deepest existing ancestor safely`);
+	}
+	const canonicalPath = path.resolve(canonicalAncestor, ...unresolvedSuffix);
+	const pathSegments = canonicalPath.split(path.sep).filter(Boolean);
+	if (pathSegments.some((segment) => LEGACY_STATE_SEGMENTS.has(segment))) {
+		throw new Error(`${MILLWRIGHT_AGENT_DIR_ENV} cannot target a legacy or unsafe state root`);
+	}
+	return path.resolve(candidate);
+}
 
 function extractKittyImageIds(line: string): number[] {
 	const sequenceStart = line.indexOf(KITTY_SEQUENCE_PREFIX);
@@ -322,8 +364,8 @@ export class TUI extends Container {
 	private static readonly MIN_RENDER_INTERVAL_MS = 16;
 	private cursorRow = 0; // Logical cursor row (end of rendered content)
 	private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
-	private showHardwareCursor = process.env.PI_HARDWARE_CURSOR === "1";
-	private clearOnShrink = process.env.PI_CLEAR_ON_SHRINK === "1"; // Clear empty rows when content shrinks (default: off)
+	private showHardwareCursor = process.env.MILLWRIGHT_HARDWARE_CURSOR === "1";
+	private clearOnShrink = process.env.MILLWRIGHT_CLEAR_ON_SHRINK === "1"; // Clear empty rows when content shrinks (default: off)
 	private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
 	private fullRedrawCount = 0;
@@ -1667,10 +1709,10 @@ export class TUI extends Container {
 			this.previousHeight = height;
 		};
 
-		const debugRedraw = process.env.PI_DEBUG_REDRAW === "1";
+		const debugRedraw = process.env.MILLWRIGHT_DEBUG_REDRAW === "1";
 		const logRedraw = (reason: string): void => {
 			if (!debugRedraw) return;
-			const logPath = path.join(os.homedir(), ".prime", "agent", "pi-debug.log");
+			const logPath = path.join(getMillwrightStateDir(), "millwright-debug.log");
 			const msg = `[${new Date().toISOString()}] fullRender: ${reason} (prev=${this.previousLines.length}, new=${newLines.length}, height=${height})\n`;
 			fs.appendFileSync(logPath, msg);
 		};
@@ -1700,7 +1742,7 @@ export class TUI extends Container {
 
 		// Content shrunk below the working area and no overlays - re-render to clear empty rows
 		// (overlays need the padding, so only do this when no overlays are active)
-		// Configurable via setClearOnShrink() or PI_CLEAR_ON_SHRINK=0 env var
+		// Configurable via setClearOnShrink() or MILLWRIGHT_CLEAR_ON_SHRINK=0 env var
 		if (this.clearOnShrink && newLines.length < this.maxLinesRendered && this.overlayStack.length === 0) {
 			logRedraw(`clearOnShrink (maxLinesRendered=${this.maxLinesRendered})`);
 			fullRender(true, preserveViewport);
@@ -1852,7 +1894,7 @@ export class TUI extends Container {
 			const isImage = isImageLine(line);
 			if (!isImage && visibleWidth(line) > width) {
 				// Log all lines to crash file for debugging
-				const crashLogPath = path.join(os.homedir(), ".prime", "agent", "pi-crash.log");
+				const crashLogPath = path.join(getMillwrightStateDir(), "millwright-crash.log");
 				const crashData = [
 					`Crash at ${new Date().toISOString()}`,
 					`Terminal width: ${width}`,
@@ -1902,8 +1944,8 @@ export class TUI extends Container {
 
 		buffer += "\x1b[?2026l"; // End synchronized output
 
-		if (process.env.PI_TUI_DEBUG === "1") {
-			const debugDir = "/tmp/tui";
+		if (process.env.MILLWRIGHT_TUI_DEBUG === "1") {
+			const debugDir = path.join(getMillwrightStateDir(), "tui-debug");
 			fs.mkdirSync(debugDir, { recursive: true });
 			const debugPath = path.join(debugDir, `render-${Date.now()}-${Math.random().toString(36).slice(2)}.log`);
 			const debugData = [

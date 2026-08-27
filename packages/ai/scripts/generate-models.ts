@@ -377,7 +377,9 @@ function getOptionalBoolean(value: unknown): boolean | undefined {
 
 function readPrimeCliConfig(): Record<string, unknown> {
 	try {
-		const parsed = JSON.parse(readFileSync(join(homedir(), ".prime", "config.json"), "utf8"));
+		const parsed = JSON.parse(
+			readFileSync(join(homedir(), ".millwright", "providers", "prime", "config.json"), "utf8"),
+		);
 		return isRecord(parsed) ? parsed : {};
 	} catch {
 		return {};

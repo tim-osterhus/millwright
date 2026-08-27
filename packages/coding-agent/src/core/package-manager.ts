@@ -27,7 +27,7 @@ import type { Readable } from "node:stream";
 import { globSync } from "glob";
 import ignore from "ignore";
 import { minimatch } from "minimatch";
-import { CONFIG_DIR_NAME, getBundledSkillsDir } from "../config.js";
+import { getBundledSkillsDir, getWorkspaceStateDir } from "../config.js";
 import { shouldUseWindowsShell } from "../utils/child-process.js";
 import { type GitSource, parseGitUrl } from "../utils/git.js";
 import { canonicalizePath, isLocalPath } from "../utils/paths.js";
@@ -40,7 +40,7 @@ const UPDATE_CHECK_CONCURRENCY = 4;
 const GIT_UPDATE_CONCURRENCY = 4;
 
 function isOfflineModeEnabled(): boolean {
-	const value = process.env.PI_OFFLINE;
+	const value = process.env.MILLWRIGHT_OFFLINE;
 	if (!value) return false;
 	return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
 }
@@ -176,7 +176,7 @@ interface ResourceAccumulator {
  *   2  user + settings entry (source: "local", scope: "user")
  *   3  user + auto-discovered (source: "auto", scope: "user")
  *   4  package resource (origin: "package")
- *   5  built-in resource shipped with prime-agent (source: "builtin")
+ *   5  built-in resource shipped with Millwright (source: "builtin")
  */
 function resourcePrecedenceRank(m: PathMetadata): number {
 	if (m.source === "builtin") return 5;
@@ -882,7 +882,7 @@ export class DefaultPackageManager implements PackageManager {
 		await this.resolvePackageSources(packageSources, accumulator, onMissing);
 
 		const globalBaseDir = this.agentDir;
-		const projectBaseDir = join(this.cwd, CONFIG_DIR_NAME);
+		const projectBaseDir = getWorkspaceStateDir(this.cwd);
 
 		for (const resourceType of RESOURCE_TYPES) {
 			const target = this.getTargetMap(accumulator, resourceType);
@@ -1848,7 +1848,7 @@ export class DefaultPackageManager implements PackageManager {
 			return this.getTemporaryDir("npm");
 		}
 		if (scope === "project") {
-			return join(this.cwd, CONFIG_DIR_NAME, "npm");
+			return join(getWorkspaceStateDir(this.cwd), "npm");
 		}
 		return join(this.getGlobalNpmRoot(), "..");
 	}
@@ -1875,7 +1875,7 @@ export class DefaultPackageManager implements PackageManager {
 			return join(this.getTemporaryDir("npm"), "node_modules", source.name);
 		}
 		if (scope === "project") {
-			return join(this.cwd, CONFIG_DIR_NAME, "npm", "node_modules", source.name);
+			return join(getWorkspaceStateDir(this.cwd), "npm", "node_modules", source.name);
 		}
 		return join(this.getGlobalNpmRoot(), source.name);
 	}
@@ -1885,7 +1885,7 @@ export class DefaultPackageManager implements PackageManager {
 			return this.getTemporaryDir(`git-${source.host}`, source.path);
 		}
 		if (scope === "project") {
-			return join(this.cwd, CONFIG_DIR_NAME, "git", source.host, source.path);
+			return join(getWorkspaceStateDir(this.cwd), "git", source.host, source.path);
 		}
 		return join(this.agentDir, "git", source.host, source.path);
 	}
@@ -1895,7 +1895,7 @@ export class DefaultPackageManager implements PackageManager {
 			return undefined;
 		}
 		if (scope === "project") {
-			return join(this.cwd, CONFIG_DIR_NAME, "git");
+			return join(getWorkspaceStateDir(this.cwd), "git");
 		}
 		return join(this.agentDir, "git");
 	}
@@ -1910,7 +1910,7 @@ export class DefaultPackageManager implements PackageManager {
 
 	private getBaseDirForScope(scope: SourceScope): string {
 		if (scope === "project") {
-			return join(this.cwd, CONFIG_DIR_NAME);
+			return getWorkspaceStateDir(this.cwd);
 		}
 		if (scope === "user") {
 			return this.agentDir;

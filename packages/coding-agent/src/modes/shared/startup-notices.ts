@@ -14,7 +14,7 @@ import { checkForNewPiVersion } from "../../utils/version-check.js";
 import { theme } from "../interactive/theme/theme.js";
 
 export interface StartupNotices {
-	/** Newer Prime Agent version available, if any. */
+	/** Newer Millwright version available, if any. */
 	newVersion?: string;
 	/** Display names of extensions with available updates. */
 	packageUpdates: string[];
@@ -44,7 +44,7 @@ export async function checkForPackageUpdates(options: {
 	agentDir: string;
 	settingsManager: SettingsManager;
 }): Promise<string[]> {
-	if (process.env.PI_OFFLINE) {
+	if (process.env.MILLWRIGHT_OFFLINE) {
 		return [];
 	}
 

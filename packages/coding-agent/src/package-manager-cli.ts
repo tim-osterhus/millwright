@@ -37,6 +37,7 @@ import {
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
 	PACKAGE_NAME,
+	PRODUCT_PACKAGE_NAME,
 	SELF_UPDATE_INTERACTIVE_CHILD_ENV,
 	SELF_UPDATE_NOT_ATTEMPTED_EXIT_CODE,
 	type SelfUpdateCommand,
@@ -439,7 +440,7 @@ function setSelfUpdateNoChangeExitCode(): void {
 async function getSelfUpdatePlan(force: boolean): Promise<SelfUpdatePlan> {
 	try {
 		const latestRelease = await getLatestPiRelease(VERSION);
-		const packageName = latestRelease?.packageName ?? PACKAGE_NAME;
+		const packageName = latestRelease?.packageName ?? PRODUCT_PACKAGE_NAME;
 		const installSpec = latestRelease?.installSpec ?? packageName;
 		const packageRenameRequiresUpdate = !latestRelease?.installSpec && packageName !== PACKAGE_NAME;
 		if (
@@ -451,11 +452,11 @@ async function getSelfUpdatePlan(force: boolean): Promise<SelfUpdatePlan> {
 			return { installSpec, packageName, shouldRun: true, targetVersion: latestRelease?.version };
 		}
 	} catch {
-		return { installSpec: PACKAGE_NAME, packageName: PACKAGE_NAME, shouldRun: true };
+		return { installSpec: PRODUCT_PACKAGE_NAME, packageName: PRODUCT_PACKAGE_NAME, shouldRun: true };
 	}
 
 	console.log(chalk.green(`${APP_NAME} is already up to date (v${VERSION})`));
-	return { installSpec: PACKAGE_NAME, packageName: PACKAGE_NAME, shouldRun: false };
+	return { installSpec: PRODUCT_PACKAGE_NAME, packageName: PRODUCT_PACKAGE_NAME, shouldRun: false };
 }
 
 async function runSelfUpdate(command: SelfUpdateCommand): Promise<void> {
@@ -484,15 +485,15 @@ async function runSelfUpdate(command: SelfUpdateCommand): Promise<void> {
 }
 
 const UPDATE_RESTART_CONTINUATION_PROMPT =
-	"Prime Agent restarted after an update. Continue the interrupted task from the saved transcript and restored tool/kernel state. Inspect current state before retrying commands when needed.";
+	"Millwright restarted after an update. Continue the interrupted task from the saved transcript and restored tool/kernel state. Inspect current state before retrying commands when needed.";
 
 const UPDATE_SESSION_LOSS_COPY: DaemonSessionLossCopy = {
 	busyDetail(count) {
 		const { noun, pronoun } = pluralizeSessions(count);
-		return `Prime Agent has ${count} busy ${noun}. After the update installs, it will stop ${pronoun}, restart its background service, and resume interrupted work.`;
+		return `Millwright has ${count} busy ${noun}. After the update installs, it will stop ${pronoun}, restart its background service, and resume interrupted work.`;
 	},
 	unlistableDetail:
-		"Running agents could not be listed. After the update installs, Prime Agent will stop resident agents, restart its background service, and resume interrupted work where possible.",
+		"Running agents could not be listed. After the update installs, Millwright will stop resident agents, restart its background service, and resume interrupted work where possible.",
 	question: "Continue?",
 	nonTtyHint: "Re-run with --force to proceed.",
 };
@@ -1011,7 +1012,7 @@ async function restoreDaemonUpdateRestartSession(
 					activeSessionId,
 					message: {
 						customType: "prime-agent.update_complete",
-						content: `Prime Agent updated to v${VERSION}. This daemon session was restored after the update.`,
+						content: `Millwright updated to v${VERSION}. This daemon session was restored after the update.`,
 						display: true,
 						details: { version: VERSION },
 					},

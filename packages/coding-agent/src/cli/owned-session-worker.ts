@@ -58,7 +58,7 @@ function hasNonSessionOperation(args: readonly string[]): boolean {
 }
 
 function isStartupBenchmark(environment: NodeJS.ProcessEnv): boolean {
-	const value = environment.PI_STARTUP_BENCHMARK?.toLowerCase();
+	const value = environment.MILLWRIGHT_STARTUP_BENCHMARK?.toLowerCase();
 	return value === "1" || value === "true" || value === "yes";
 }
 
@@ -201,7 +201,7 @@ export async function runOwnedSessionWorkerFrontend(
 	profile: OwnedSessionWorkerProfile,
 ): Promise<number> {
 	const interactive = profile === "interactive-ephemeral";
-	const recoveryDescriptorPath = join(tmpdir(), `prime-agent-owned-${process.pid}-${randomUUID().slice(0, 12)}.json`);
+	const recoveryDescriptorPath = join(tmpdir(), `millwright-owned-${process.pid}-${randomUUID().slice(0, 12)}.json`);
 	const orphanProcessJournalPath = `${recoveryDescriptorPath}.orphans.jsonl`;
 	let currentChild: ChildProcess | undefined;
 	let terminating = false;
@@ -214,7 +214,7 @@ export async function runOwnedSessionWorkerFrontend(
 	let detachRpcOutput: (() => void) | undefined;
 	const bufferedRpcInput: string[] = [];
 	const pendingRpcCommands = new Map<string, { publicId?: string; command: string }>();
-	const anonymousRpcIdPrefix = `prime-agent-owned-${randomUUID()}`;
+	const anonymousRpcIdPrefix = `millwright-owned-${randomUUID()}`;
 	let anonymousRpcCommandId = 0;
 
 	const prepareRpcInput = (line: string): string => {

@@ -243,11 +243,11 @@ describe("telemetry controls", () => {
 		expect(isTelemetryEnabled(settings)).toBe(false);
 
 		vi.stubEnv("DO_NOT_TRACK", "0");
-		vi.stubEnv("PRIME_AGENT_TELEMETRY", "0");
+		vi.stubEnv("MILLWRIGHT_TELEMETRY", "0");
 		expect(isTelemetryEnabled(settings)).toBe(false);
 
-		vi.stubEnv("PRIME_AGENT_TELEMETRY", "1");
-		vi.stubEnv("PI_OFFLINE", "true");
+		vi.stubEnv("MILLWRIGHT_TELEMETRY", "1");
+		vi.stubEnv("MILLWRIGHT_OFFLINE", "true");
 		expect(isTelemetryEnabled(settings)).toBe(false);
 	});
 
@@ -255,7 +255,7 @@ describe("telemetry controls", () => {
 		const settings = SettingsManager.inMemory({ telemetry: { enabled: true } });
 		vi.stubEnv("NODE_ENV", "test");
 		expect(isTelemetryEnabled(settings)).toBe(false);
-		vi.stubEnv("PRIME_AGENT_TELEMETRY", "1");
+		vi.stubEnv("MILLWRIGHT_TELEMETRY", "1");
 		expect(isTelemetryEnabled(settings)).toBe(true);
 	});
 
@@ -277,7 +277,7 @@ describe("telemetry controls", () => {
 
 describe("agent telemetry aggregation", () => {
 	it("captures only allowlisted built-in command names", async () => {
-		vi.stubEnv("PRIME_AGENT_TELEMETRY", "1");
+		vi.stubEnv("MILLWRIGHT_TELEMETRY", "1");
 		const sink = new FakeTelemetrySink();
 
 		await captureAgentCommandUsed({
@@ -304,7 +304,7 @@ describe("agent telemetry aggregation", () => {
 	});
 
 	it("captures onboarding completion with categorized auth and provider data", async () => {
-		vi.stubEnv("PRIME_AGENT_TELEMETRY", "1");
+		vi.stubEnv("MILLWRIGHT_TELEMETRY", "1");
 		const sink = new FakeTelemetrySink();
 
 		await captureOnboardingCompleted({
@@ -333,7 +333,7 @@ describe("agent telemetry aggregation", () => {
 	});
 
 	it("emits aggregate metrics without message or tool content", () => {
-		vi.stubEnv("PRIME_AGENT_TELEMETRY", "1");
+		vi.stubEnv("MILLWRIGHT_TELEMETRY", "1");
 		let timestamp = 1_000;
 		const now = () => timestamp;
 		const randomId = uuidGenerator();
@@ -426,7 +426,7 @@ describe("agent telemetry aggregation", () => {
 	});
 
 	it("waits for post-run compaction before finalizing run metrics", () => {
-		vi.stubEnv("PRIME_AGENT_TELEMETRY", "1");
+		vi.stubEnv("MILLWRIGHT_TELEMETRY", "1");
 		const sink = new FakeTelemetrySink();
 		const fakeSession = new FakeAgentSession();
 
@@ -459,7 +459,7 @@ describe("agent telemetry aggregation", () => {
 	});
 
 	it("keeps automatic retries in one completed run", () => {
-		vi.stubEnv("PRIME_AGENT_TELEMETRY", "1");
+		vi.stubEnv("MILLWRIGHT_TELEMETRY", "1");
 		const sink = new FakeTelemetrySink();
 		const fakeSession = new FakeAgentSession();
 
@@ -496,7 +496,7 @@ describe("agent telemetry aggregation", () => {
 	});
 
 	it("awaits the final telemetry flush during async session disposal", async () => {
-		vi.stubEnv("PRIME_AGENT_TELEMETRY", "1");
+		vi.stubEnv("MILLWRIGHT_TELEMETRY", "1");
 		const sink = new FakeTelemetrySink();
 		const fakeSession = new FakeAgentSession();
 		let releaseFlush: () => void = () => {};

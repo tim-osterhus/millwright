@@ -43,9 +43,9 @@ except Exception as _prime_agent_rlm_error:
     class _PrimeAgentMissingRlm:
         def _raise_missing(self):
             raise RuntimeError(
-                "prime-agent-runtime is not installed in this IPython kernel. "
-                "Remove ~/.prime/agent/kernel-venv so prime-agent can rebuild it, or set "
-                "PRIME_AGENT_KERNEL_PYTHON to a kernel environment with prime-agent-runtime installed. "
+                "The Millwright Python runtime is not installed in this IPython kernel. "
+                "Remove ~/.millwright/kernel-venv so Millwright can rebuild it, or set "
+                "MILLWRIGHT_KERNEL_PYTHON to a kernel environment with the Millwright Python runtime installed. "
                 f"Import error: {_PRIME_AGENT_RLM_IMPORT_ERROR}"
             )
 

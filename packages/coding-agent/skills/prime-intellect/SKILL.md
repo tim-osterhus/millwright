@@ -5,7 +5,7 @@ description: Work with Prime Intellect products via the prime CLI and Python SDK
 
 # Prime Intellect
 
-Prime Intellect is an open superintelligence lab building open-source AGI infrastructure: a platform for RL environments, evaluations, post-training, inference, and globally distributed GPU compute. Prime Agent (this agent) is built by Prime Intellect, and the `prime` CLI is the default way to interface with every product below.
+Millwright is a downstream agent harness that retains selected upstream and Pi source. Prime Intellect is an open superintelligence lab building open-source AGI infrastructure: a platform for RL environments, evaluations, post-training, inference, and globally distributed GPU compute. The `prime` CLI is the default way to interface with every Prime Intellect product below.
 
 ## Product Map
 

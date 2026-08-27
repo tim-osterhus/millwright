@@ -34,7 +34,7 @@ export interface ToolUnavailableResult {
 export type ToolEnsureResult = ToolAvailableResult | ToolUnavailableResult;
 
 function isOfflineModeEnabled(): boolean {
-	const value = process.env.PI_OFFLINE;
+	const value = process.env.MILLWRIGHT_OFFLINE;
 	if (!value) return false;
 	return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
 }
@@ -295,10 +295,10 @@ export function formatMissingRipgrepMessage(result: ToolUnavailableResult): stri
 	let reason: string;
 	switch (result.reason) {
 		case "offline":
-			reason = "Automatic installation was skipped because PI_OFFLINE is enabled.";
+			reason = "Automatic installation was skipped because MILLWRIGHT_OFFLINE is enabled.";
 			break;
 		case "manual_install_required":
-			reason = "Prime Agent cannot install this helper automatically in Termux.";
+			reason = "Millwright cannot install this helper automatically in Termux.";
 			break;
 		case "unsupported_platform":
 			reason = `Automatic installation is unavailable for ${result.platform}/${result.architecture}.`;
@@ -306,14 +306,14 @@ export function formatMissingRipgrepMessage(result: ToolUnavailableResult): stri
 		case "download_failed": {
 			const detail = result.detail?.replace(/\s+/g, " ").trim();
 			reason = detail
-				? `Prime Agent could not install it automatically: ${detail}`
-				: "Prime Agent could not install it automatically.";
+				? `Millwright could not install it automatically: ${detail}`
+				: "Millwright could not install it automatically.";
 			break;
 		}
 	}
 
 	return [
-		"ripgrep (rg) is an optional search helper. Without it, model-run file searches may be slower or fail; Prime Agent and subagents remain available.",
+		"ripgrep (rg) is an optional search helper. Without it, model-run file searches may be slower or fail; Millwright and subagents remain available.",
 		reason,
 		getRipgrepInstallHint(result.platform),
 	].join("\n");

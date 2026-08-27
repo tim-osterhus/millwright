@@ -11,9 +11,9 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { OAuthAuthInfo } from "@earendil-works/pi-ai";
+import { getAgentDir } from "../config.js";
 
 export const PRIME_INFERENCE_PROVIDER_ID = "prime-inference";
 export const PRIME_INFERENCE_PROVIDER_NAME = "Prime Inference";
@@ -87,7 +87,7 @@ export type PrimeTeam = {
 };
 
 function defaultPrimeCliConfigPath(): string {
-	return join(homedir(), ".prime", "config.json");
+	return join(getAgentDir(), "providers", "prime", "config.json");
 }
 
 export function getPrimeCliConfigPath(configPath?: string): string {

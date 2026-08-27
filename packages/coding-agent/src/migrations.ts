@@ -16,7 +16,7 @@ import {
 	writeFileSync,
 } from "fs";
 import { basename, dirname, join } from "path";
-import { CONFIG_DIR_NAME, getAgentDir, getBinDir, getSessionsDir } from "./config.js";
+import { getAgentDir, getBinDir, getSessionsDir, getWorkspaceStateDir } from "./config.js";
 import { migrateKeybindingsConfig } from "./core/keybindings.js";
 import { readFirstLineSync } from "./utils/file-lines.js";
 
@@ -85,11 +85,10 @@ export function migrateAuthToAuthJson(): string[] {
 }
 
 /**
- * Migrate sessions from ~/.pi/agent/*.jsonl to the session root.
+ * Migrate sessions from the Millwright agent root to the session root.
  *
- * Bug in v0.30.0: Sessions were saved to ~/.pi/agent/ instead of
- * ~/.pi/agent/sessions/. This migration moves them to the configured
- * session root.
+ * The upstream migration handled sessions saved directly under the agent root instead of
+ * the session root. This migration moves them to the configured session root.
  *
  * See: https://github.com/earendil-works/pi-mono/issues/320
  */
@@ -156,7 +155,7 @@ function isLegacySessionDirName(name: string): boolean {
 /**
  * Migrate legacy per-cwd session directories into the flat session root.
  *
- * Older versions stored sessions under ~/.prime/agent/sessions/--cwd--/*.jsonl.
+ * Millwright stores sessions under ~/.millwright/sessions/--cwd--/*.jsonl.
  * The daemon list/continue paths now scan the flat session root, so move any
  * existing nested JSONL session files up one level.
  */
@@ -363,7 +362,7 @@ function checkDeprecatedExtensionDirs(baseDir: string, label: string): string[] 
  */
 function migrateExtensionSystem(cwd: string): string[] {
 	const agentDir = getAgentDir();
-	const projectDir = join(cwd, CONFIG_DIR_NAME);
+	const projectDir = getWorkspaceStateDir(cwd);
 
 	// Migrate commands/ to prompts/
 	migrateCommandsToPrompts(agentDir, "Global");
