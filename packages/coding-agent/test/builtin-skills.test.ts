@@ -318,7 +318,7 @@ describe("builtin skills", () => {
 		});
 
 		it("release packer includes skills in the packed package", () => {
-			const script = readFileSync(join(repoRoot, "scripts", "pack-prime-agent-release.mjs"), "utf-8");
+			const script = readFileSync(join(repoRoot, "scripts", "pack-millwright-release.mjs"), "utf-8");
 			expect(script).toContain('"skills"');
 		});
 	});

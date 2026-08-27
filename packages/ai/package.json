@@ -68,8 +68,7 @@
 		"build": "npm run generate-models && tsgo -p tsconfig.build.json",
 		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
 		"dev:tsc": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
-		"test": "vitest --run",
-		"prepublishOnly": "npm run clean && npm run build"
+		"test": "vitest --run"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.91.1",
@@ -108,5 +107,6 @@
 		"@types/node": "^24.3.0",
 		"canvas": "^3.2.0",
 		"vitest": "^4.1.10"
-	}
+	},
+	"private": true
 }

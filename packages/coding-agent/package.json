@@ -40,7 +40,6 @@
 		"test:process": "vitest --run test/daemon-supervisor-process.test.ts",
 		"test:process-stress": "vitest --run --tagsFilter process-stress test/daemon-supervisor-process.test.ts",
 		"postinstall": "node postinstall.cjs",
-		"prepublishOnly": "npm run clean && npm run build",
 		"bundle": "node scripts/bundle.mjs",
 		"test:kernel": "vitest --run --no-file-parallelism --tagsFilter kernel-heavy test/acp-kernel-features.test.ts test/acp-cold-cli.test.ts test/kernel-goal-skill.test.ts test/kernel-state-roundtrip.test.ts"
 	},
@@ -106,5 +105,6 @@
 	},
 	"engines": {
 		"node": ">=22.8.0"
-	}
+	},
+	"private": true
 }

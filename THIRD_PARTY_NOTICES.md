@@ -13,3 +13,12 @@ The unmodified license text is preserved in
 `LICENSES/Prime-Agent-MIT.txt`. Dependency-specific notices and license
 metadata remain in the imported package manifests and lockfile. This inventory
 is not legal advice.
+
+## OpenTUI-derived terminal input handling
+
+The bundled TUI contains code adapted from OpenTUI:
+
+- Copyright (c) 2025 opentui
+
+The applicable MIT license text is preserved in
+`LICENSES/OpenTUI-MIT.txt`.
