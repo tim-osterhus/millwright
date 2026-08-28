@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { gunzipSync } from "node:zlib";
+import { crc32, gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -81,6 +81,32 @@ function fileMap(tarball) {
 	return new Map(readTar(tarball).filter((entry) => entry.type === "0").map((entry) => [entry.path, entry.data]));
 }
 
+function assertStoredDeflate(compressed) {
+	assert.deepEqual(
+		[...compressed.subarray(0, 10)],
+		[0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x03],
+		"gzip header must be fixed",
+	);
+	const uncompressed = gunzipSync(compressed);
+	const trailerOffset = compressed.length - 8;
+	assert.equal(compressed.readUInt32LE(trailerOffset), crc32(uncompressed), "gzip CRC32 must cover the tar bytes");
+	assert.equal(compressed.readUInt32LE(trailerOffset + 4), uncompressed.length >>> 0, "gzip ISIZE must cover the tar bytes");
+	let offset = 10;
+	let final;
+	do {
+		assert.ok(offset < trailerOffset, "gzip stream must contain a DEFLATE block");
+		const blockHeader = compressed[offset++];
+		assert.equal(blockHeader & 0b11111000, 0, "stored DEFLATE padding bits must be zero");
+		assert.equal((blockHeader >> 1) & 0b11, 0, "DEFLATE blocks must be stored, not adaptively compressed");
+		const size = compressed.readUInt16LE(offset);
+		const inverseSize = compressed.readUInt16LE(offset + 2);
+		assert.equal(inverseSize, (~size) & 0xffff, "stored DEFLATE block length checksum");
+		offset += 4 + size;
+		final = (blockHeader & 1) === 1;
+	} while (!final);
+	assert.equal(offset, trailerOffset, "gzip stream must end its DEFLATE blocks before the trailer");
+}
+
 function runVerifier(tarball, ...extra) {
 	return spawnSync(process.execPath, [verifier, tarball, ...extra], { cwd: root, encoding: "utf8" });
 }
@@ -157,6 +183,16 @@ test("packs one frozen public artifact with closure and deterministic headers", 
 		assert.match(report.integrity, /^sha512-[A-Za-z0-9+/]+=*$/);
 		assert.ok(Array.isArray(report.unpackedFiles));
 		assert.ok(report.dependencies);
+	} finally {
+		rmSync(output, { recursive: true, force: true });
+	}
+});
+
+test("uses platform-independent stored DEFLATE blocks", async () => {
+	const output = makeOutput();
+	try {
+		const tarball = await pack(output);
+		assertStoredDeflate(readFileSync(tarball));
 	} finally {
 		rmSync(output, { recursive: true, force: true });
 	}

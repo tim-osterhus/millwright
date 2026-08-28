@@ -19,7 +19,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gzipSync, gunzipSync } from "node:zlib";
+import { crc32, gunzipSync } from "node:zlib";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PACKER_VERSION = "millwright-release-packer/1";
@@ -602,6 +602,26 @@ function stagedInputManifest(stage) {
 	return { manifest, sha256: createHash("sha256").update(Buffer.from(manifest, "utf8")).digest("hex"), fileCount: records.length };
 }
 
+function deterministicGzip(input) {
+	const chunks = [Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x03])];
+	let offset = 0;
+	do {
+		const size = Math.min(0xffff, input.length - offset);
+		const block = Buffer.allocUnsafe(5 + size);
+		block[0] = offset + size === input.length ? 1 : 0;
+		block.writeUInt16LE(size, 1);
+		block.writeUInt16LE((~size) & 0xffff, 3);
+		input.copy(block, 5, offset, offset + size);
+		chunks.push(block);
+		offset += size;
+	} while (offset < input.length);
+	const trailer = Buffer.allocUnsafe(8);
+	trailer.writeUInt32LE(crc32(input), 0);
+	trailer.writeUInt32LE(input.length >>> 0, 4);
+	chunks.push(trailer);
+	return Buffer.concat(chunks);
+}
+
 function sortNpmArchive(path) {
 	const compressed = readFileSync(path);
 	const tar = gunzipSync(compressed);
@@ -622,11 +642,9 @@ function sortNpmArchive(path) {
 	}
 	entries.sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
 	const normalizedTar = Buffer.concat([...entries.map((entry) => entry.bytes), Buffer.alloc(1024)]);
-	const normalizedGzip = gzipSync(normalizedTar, { level: 9, mtime: 0 });
-	// Node's gzip writer is stable on Unix, and explicitly fixing OS avoids a
-	// platform-specific header byte between macOS and Ubuntu.
-	normalizedGzip.writeUInt32LE(0, 4);
-	normalizedGzip[9] = 3;
+	// Native zlib can choose different DEFLATE matches across platform builds.
+	// Stored blocks keep the canonical tar bytes and gzip framing identical.
+	const normalizedGzip = deterministicGzip(normalizedTar);
 	writeFileSync(path, normalizedGzip);
 }
 
