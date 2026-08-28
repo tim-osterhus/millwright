@@ -93,6 +93,10 @@ test("coding-agent process regressions run in a dedicated serial lane", () => {
 		scripts["test:process-stress"],
 		"vitest --run --tagsFilter process-stress test/daemon-supervisor-process.test.ts",
 	);
+	assert.equal(
+		scripts["test:kernel"],
+		"vitest --run --no-file-parallelism --tagsFilter kernel-heavy test/acp-kernel-features.test.ts test/acp-cold-cli.test.ts test/kernel-attach-image-skill.test.ts test/kernel-agent-message-skill.test.ts test/kernel-goal-skill.test.ts test/kernel-state-roundtrip.test.ts",
+	);
 });
 
 test("publication is exact-tag, exact-artifact, minimal-permission, and approval gated", () => {
