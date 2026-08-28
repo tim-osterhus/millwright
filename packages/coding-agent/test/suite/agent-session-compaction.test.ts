@@ -1103,7 +1103,6 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("waits for threshold-compaction autonomous continuations before finishing prompt", async () => {
-		vi.useFakeTimers();
 		const harness = await createHarness({
 			autonomous: {
 				enabled: true,
@@ -1120,10 +1119,18 @@ describe("AgentSession compaction characterization", () => {
 			usage: createUsage(10_000),
 		};
 		harness.setResponses([highUsageDone, fauxAssistantMessage("retry")]);
-		const promptPromise = harness.session.prompt("make the change");
+		let promptSettled = false;
+		const promptPromise = harness.session.prompt("make the change").finally(() => {
+			promptSettled = true;
+		});
 
-		await vi.waitFor(() => expect(harness.session.getAutonomousStatus().continuationsUsed).toBe(1));
-		await vi.advanceTimersByTimeAsync(100);
+		// The gate runs in a real child process. Keep this wait on real time so a
+		// loaded test shard cannot exhaust a fake-timer polling budget before the
+		// child reports its expected failure.
+		await vi.waitFor(() => expect(harness.session.getAutonomousStatus().continuationsUsed).toBe(1), {
+			timeout: 10_000,
+		});
+		expect(promptSettled).toBe(false);
 		await promptPromise;
 
 		expect(harness.session.getAutonomousStatus()).toMatchObject({
