@@ -11,6 +11,7 @@ const TAG = "v0.0.1";
 const ARTIFACT = "millwright-agent-0.0.1.tgz";
 const NODE_VERSION = "22.22.0";
 const NPM_VERSION = "10.9.2";
+const UV_VERSION = "0.12.6";
 const REPOSITORY = "tim-osterhus/millwright";
 const UPSTREAM_VERSION = "0.7.2";
 const UPSTREAM_COMMIT = "9f9501146e869466acaca66dac49cff857b7b4f9";
@@ -220,7 +221,13 @@ function verifyQualification(release, ubuntuRun, ubuntuReport, ubuntuReportBytes
 	if (ubuntuReport.schemaVersion !== 1 || ubuntuReport.repository !== REPOSITORY) fail("Ubuntu qualification report identity is invalid");
 	if (String(ubuntuReport.runId) !== String(ubuntu.runId) || ubuntuReport.runAttempt !== ubuntu.runAttempt || ubuntuReport.commit !== release.sourceCommit) fail("Ubuntu qualification report run/source binding is invalid");
 	if (ubuntuReport.tree !== release.sourceTreeSha256) fail("Ubuntu qualification report tree does not match sourceTreeSha256");
-	if (ubuntuReport.toolchain?.node !== NODE_VERSION || ubuntuReport.toolchain?.npm !== NPM_VERSION) fail("Ubuntu qualification toolchain is not pinned");
+	if (
+		ubuntuReport.toolchain?.node !== NODE_VERSION ||
+		ubuntuReport.toolchain?.npm !== NPM_VERSION ||
+		ubuntuReport.toolchain?.uv !== UV_VERSION
+	) {
+		fail("Ubuntu qualification toolchain is not pinned");
+	}
 	if (ubuntuReport.artifact?.filename !== release.artifactFile || ubuntuReport.artifact?.sha256 !== release.artifactSha256 || ubuntuReport.artifact?.integrity !== release.npmIntegrity) fail("Ubuntu qualification artifact binding is invalid");
 	for (const gate of ["build", "checks", "cleanSource", "installSmoke", "pack", "tests", "types"]) {
 		const result = ubuntuReport.gates?.[gate];

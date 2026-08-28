@@ -8,13 +8,19 @@ import {
 	readFileSync,
 	renameSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { APP_NAME, ENV_AGENT_DIR } from "../../../src/config.js";
-import { getProcessStartId } from "../../../src/core/session-lease.js";
+import { ORPHAN_PROCESS_JOURNAL_ENV } from "../../../src/core/orphan-process-journal.js";
+import {
+	getProcessStartId,
+	SESSION_LEASE_OWNER_ID_ENV,
+	SESSION_LEASES_ENABLED_ENV,
+} from "../../../src/core/session-lease.js";
 import { DaemonAgentConnection } from "../../../src/modes/agent-connection/daemon-agent-connection.js";
 import { DaemonClient } from "../../../src/modes/daemon/daemon-client.js";
 import type { DaemonResponse } from "../../../src/modes/daemon/daemon-protocol.js";
@@ -25,7 +31,9 @@ import {
 } from "../../../src/modes/daemon/daemon-supervisor-ownership.js";
 import {
 	DAEMON_WORKER_ACTIVE_SESSION_ID_ENV,
+	DAEMON_WORKER_RECOVERY_JOURNAL_ENV,
 	DAEMON_WORKER_ROLE_ENV,
+	DAEMON_WORKER_STARTUP_GATE_FD_ENV,
 	DAEMON_WORKER_SUPERVISOR_SOCKET_ENV,
 	DAEMON_WORKER_TOKEN_ENV,
 	type DaemonWorkerDescriptor,
@@ -104,6 +112,25 @@ const fixtureProcesses = new Map<string, FixtureProcessIdentity>();
 const fixtureRegistryDirs = new Set<string>();
 // Covers the worker's five second supervisor-availability retry.
 const fixtureProcessQuietMs = 5500;
+const vitestHostProcessStartId = getProcessStartId(process.pid);
+
+function isolatedDaemonEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const environment = { ...process.env };
+	for (const name of [
+		DAEMON_WORKER_ROLE_ENV,
+		DAEMON_WORKER_TOKEN_ENV,
+		DAEMON_WORKER_ACTIVE_SESSION_ID_ENV,
+		DAEMON_WORKER_SUPERVISOR_SOCKET_ENV,
+		DAEMON_WORKER_RECOVERY_JOURNAL_ENV,
+		DAEMON_WORKER_STARTUP_GATE_FD_ENV,
+		ORPHAN_PROCESS_JOURNAL_ENV,
+		SESSION_LEASES_ENABLED_ENV,
+		SESSION_LEASE_OWNER_ID_ENV,
+	]) {
+		delete environment[name];
+	}
+	return { ...environment, ...overrides };
+}
 
 afterEach(async () => {
 	registerFixtureOwnedProcesses();
@@ -126,7 +153,11 @@ async function createPaths(): Promise<TestPaths> {
 	const harness = await createHarness();
 	harnesses.push(harness);
 	const executablePath = join(harness.tempDir, APP_NAME);
-	linkSync(process.execPath, executablePath);
+	if (process.platform === "darwin") {
+		symlinkSync(process.execPath, executablePath);
+	} else {
+		linkSync(process.execPath, executablePath);
+	}
 	const socketTmpDir = `/tmp/eng-4603-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 	mkdirSync(socketTmpDir, { recursive: true, mode: 0o700 });
 	socketTempDirs.add(socketTmpDir);
@@ -149,8 +180,7 @@ function spawnSupervisor(paths: TestPaths): ProcessHandle {
 	return trackProcess(
 		spawn(paths.executablePath, [tsxPath, fixturePath], {
 			cwd: paths.agentDir,
-			env: {
-				...process.env,
+			env: isolatedDaemonEnvironment({
 				[supervisorRegistryDirEnv]: paths.registryDir,
 				[ENV_AGENT_DIR]: paths.agentDir,
 				ENG_4600_AGENT_DIR: paths.agentDir,
@@ -161,7 +191,7 @@ function spawnSupervisor(paths: TestPaths): ProcessHandle {
 				PI_OFFLINE: "1",
 				TMPDIR: paths.socketTmpDir,
 				TSX_TSCONFIG_PATH: tsconfigPath,
-			},
+			}),
 			stdio: ["ignore", "pipe", "pipe", "ipc"],
 		}),
 		"supervisor",
@@ -180,8 +210,7 @@ function spawnStandaloneWorker(
 			[tsxPath, cliPath, "--mode", "daemon", "--daemon-socket", workerSocketPath, "--offline"],
 			{
 				cwd: paths.agentDir,
-				env: {
-					...process.env,
+				env: isolatedDaemonEnvironment({
 					...extraEnv,
 					[supervisorRegistryDirEnv]: paths.registryDir,
 					[ENV_AGENT_DIR]: paths.agentDir,
@@ -191,7 +220,7 @@ function spawnStandaloneWorker(
 					[DAEMON_WORKER_SUPERVISOR_SOCKET_ENV]: paths.socketPath,
 					PI_OFFLINE: "1",
 					TSX_TSCONFIG_PATH: tsconfigPath,
-				},
+				}),
 				stdio: ["ignore", "pipe", "pipe"],
 			},
 		),
@@ -234,6 +263,7 @@ function registerFixtureProcess(
 	role: FixtureProcessIdentity["role"],
 ): FixtureProcessIdentity | undefined {
 	if (pid === undefined) return undefined;
+	if (isVitestHostIdentity(pid, processStartId)) return undefined;
 	if (!Number.isSafeInteger(pid) || pid <= 0) {
 		throw new Error(`Invalid fixture process pid: ${String(pid)}`);
 	}
@@ -277,7 +307,11 @@ function registerFixtureOwnedProcesses(): void {
 	}
 }
 
-function registerFixtureRecord(value: unknown, role: "supervisor" | "worker", path: string): FixtureProcessIdentity {
+function registerFixtureRecord(
+	value: unknown,
+	role: "supervisor" | "worker",
+	path: string,
+): FixtureProcessIdentity | undefined {
 	if (!value || typeof value !== "object") {
 		throw new Error(`Invalid fixture process record: ${path}`);
 	}
@@ -291,7 +325,11 @@ function registerFixtureRecord(value: unknown, role: "supervisor" | "worker", pa
 	) {
 		throw new Error(`Invalid fixture process identity: ${path}`);
 	}
-	return registerFixtureProcess(record.pid, record.processStartId, role)!;
+	return registerFixtureProcess(record.pid, record.processStartId, role);
+}
+
+function isVitestHostIdentity(pid: number, processStartId: string | undefined): boolean {
+	return pid === process.pid && processStartId === vitestHostProcessStartId;
 }
 
 function readFixtureProcessSnapshot(): Map<number, FixtureProcessSnapshot> {
@@ -342,6 +380,7 @@ function isFixtureDescendant(pid: number, rootPid: number, processes: Map<number
 }
 
 function signalFixtureProcess(identity: FixtureProcessIdentity, signal: NodeJS.Signals): boolean {
+	if (isVitestHostIdentity(identity.pid, identity.processStartId)) return false;
 	const state = fixtureProcessState(identity);
 	if (state === "exited") return false;
 	if (state === "unverified") {
@@ -679,15 +718,14 @@ async function runCli(
 	const handle = trackProcess(
 		spawn(process.execPath, [tsxPath, cliPath, ...args], {
 			cwd: paths.agentDir,
-			env: {
-				...process.env,
+			env: isolatedDaemonEnvironment({
 				...extraEnv,
 				[supervisorRegistryDirEnv]: paths.registryDir,
 				[ENV_AGENT_DIR]: paths.agentDir,
 				PI_OFFLINE: "1",
 				TMPDIR: paths.socketTmpDir,
 				TSX_TSCONFIG_PATH: tsconfigPath,
-			},
+			}),
 			stdio: ["ignore", "pipe", "pipe"],
 		}),
 		"client",
@@ -750,6 +788,20 @@ function delay(ms: number): Promise<void> {
 }
 
 describe("ENG-4603 worker recovery convergence", () => {
+	it("does not register or signal the exact Vitest host identity as a fixture", () => {
+		const processStartId = getProcessStartId(process.pid);
+		if (!processStartId) return;
+		const hostIdentity: FixtureProcessIdentity = { pid: process.pid, processStartId, role: "supervisor" };
+		try {
+			expect(
+				registerFixtureProcess(hostIdentity.pid, hostIdentity.processStartId, hostIdentity.role),
+			).toBeUndefined();
+			expect(signalFixtureProcess(hostIdentity, "SIGSTOP")).toBe(false);
+		} finally {
+			fixtureProcesses.delete(fixtureProcessKey(hostIdentity));
+		}
+	});
+
 	it("allows only the current generation to replace a crashed resident worker", async () => {
 		if (process.platform === "win32") return;
 		const paths = await createPaths();

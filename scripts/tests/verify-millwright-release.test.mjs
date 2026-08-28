@@ -99,7 +99,7 @@ function createFixture(options = {}) {
 		runAttempt,
 		commit: sourceCommit,
 		tree: sourceTree,
-		toolchain: { node: "22.22.0", npm: "10.9.2" },
+		toolchain: { node: "22.22.0", npm: "10.9.2", uv: "0.12.6" },
 		gates: Object.fromEntries(
 			["build", "checks", "cleanSource", "installSmoke", "pack", "tests", "types"].map((gate) => [gate, { status: "passed", outputSha256: sha256(Buffer.from(`${gate}\n`)) }]),
 		),
@@ -286,6 +286,7 @@ test("release verifier rejects invalid identity, topology, evidence, and artifac
 		["failed run", { ubuntuRun: (value) => { value.conclusion = "failure"; } }],
 		["wrong run commit", { ubuntuRun: (value) => { value.headSha = "0".repeat(40); } }],
 		["wrong report", { ubuntuReport: (value) => { value.commit = "0".repeat(40); } }],
+		["wrong qualification uv", { ubuntuReport: (value) => { value.toolchain.uv = "0.12.5"; } }],
 		["wrong package provenance", { packageReport: (value) => { value.provenance.sourceCommit = "0".repeat(40); } }],
 	];
 	for (const [label, options] of cases) {

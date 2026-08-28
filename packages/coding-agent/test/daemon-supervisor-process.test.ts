@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENV_AGENT_DIR, getCronJobsPath } from "../src/config.js";
 import { AgentCronJobStore } from "../src/core/cron-jobs.js";
-import { readActiveOrphanProcesses } from "../src/core/orphan-process-journal.js";
+import { ORPHAN_PROCESS_JOURNAL_ENV, readActiveOrphanProcesses } from "../src/core/orphan-process-journal.js";
 import {
 	acquireSessionLease,
 	SESSION_LEASE_OWNER_ID_ENV,
@@ -16,7 +16,15 @@ import { readSessionInfo, SessionManager } from "../src/core/session-manager.js"
 import { DaemonAgentConnection } from "../src/modes/agent-connection/daemon-agent-connection.js";
 import { DaemonClient, getDaemonSocketCloseReason } from "../src/modes/daemon/daemon-client.js";
 import type { SessionSummary } from "../src/modes/daemon/daemon-session-list.js";
-import type { DaemonWorkerDescriptor } from "../src/modes/daemon/daemon-worker-protocol.js";
+import {
+	DAEMON_WORKER_ACTIVE_SESSION_ID_ENV,
+	DAEMON_WORKER_RECOVERY_JOURNAL_ENV,
+	DAEMON_WORKER_ROLE_ENV,
+	DAEMON_WORKER_STARTUP_GATE_FD_ENV,
+	DAEMON_WORKER_SUPERVISOR_SOCKET_ENV,
+	DAEMON_WORKER_TOKEN_ENV,
+	type DaemonWorkerDescriptor,
+} from "../src/modes/daemon/daemon-worker-protocol.js";
 
 const cliPath = resolve(__dirname, "../src/cli.ts");
 const tsxPath = resolve(__dirname, "../../../node_modules/tsx/dist/cli.mjs");
@@ -27,6 +35,24 @@ const workerPids = new Set<number>();
 const daemonSockets = new Set<string>();
 const childDiagnostics = new WeakMap<ChildProcess, { stdout: string; stderr: string }>();
 const PROCESS_STRESS_WORKERS = Number.parseInt(process.env.MILLWRIGHT_STRESS_WORKERS ?? "10", 10);
+
+function isolatedDaemonEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const environment = { ...process.env };
+	for (const name of [
+		DAEMON_WORKER_ROLE_ENV,
+		DAEMON_WORKER_TOKEN_ENV,
+		DAEMON_WORKER_ACTIVE_SESSION_ID_ENV,
+		DAEMON_WORKER_SUPERVISOR_SOCKET_ENV,
+		DAEMON_WORKER_RECOVERY_JOURNAL_ENV,
+		DAEMON_WORKER_STARTUP_GATE_FD_ENV,
+		ORPHAN_PROCESS_JOURNAL_ENV,
+		SESSION_LEASES_ENABLED_ENV,
+		SESSION_LEASE_OWNER_ID_ENV,
+	]) {
+		delete environment[name];
+	}
+	return { ...environment, ...overrides };
+}
 
 afterEach(async () => {
 	for (const socketPath of daemonSockets) {
@@ -87,12 +113,11 @@ function spawnSupervisor(
 		[tsxPath, cliPath, "--mode", "daemon", "--daemon-socket", socketPath, "--offline", ...extraArgs],
 		{
 			cwd,
-			env: {
-				...process.env,
+			env: isolatedDaemonEnvironment({
 				[ENV_AGENT_DIR]: agentDir,
 				MILLWRIGHT_OFFLINE: "1",
 				TSX_TSCONFIG_PATH: resolve(__dirname, "../../../tsconfig.json"),
-			},
+			}),
 			stdio: ["ignore", "pipe", "pipe"],
 		},
 	);

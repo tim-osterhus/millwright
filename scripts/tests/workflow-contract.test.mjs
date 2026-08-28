@@ -43,6 +43,7 @@ test("CI is pinned, cross-platform, non-mutating, and incapable of publication",
 		"npm run test:ci --workspace=packages/coding-agent -- --shard=2/3",
 		"npm run test:ci --workspace=packages/coding-agent -- --shard=3/3",
 		"npm run test:process --workspace=packages/coding-agent",
+		"npm run test:process-stress --workspace=packages/coding-agent",
 		"npm run test:kernel --workspace=packages/coding-agent",
 		"npm run pack:release",
 		"verify-millwright-package.mjs",
@@ -60,6 +61,34 @@ test("CI is pinned, cross-platform, non-mutating, and incapable of publication",
 	assert.match(fullTests.run, /set -euo pipefail/u);
 	assert.match(fullTests.run, /MILLWRIGHT_OFFLINE=1 npx vitest/u);
 	assert.equal(job.environment, undefined);
+});
+
+test("CI provisions and verifies the exact uv toolchain without caching", () => {
+	const value = workflow(".github/workflows/ci.yml");
+	const job = value.jobs.verify;
+	const uvSetup = job.steps.find((step) => step.name === "Set up uv");
+	assert.ok(uvSetup);
+	assert.equal(uvSetup.uses, "astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9");
+	assert.deepEqual(uvSetup.with, { version: "0.12.6", "enable-cache": false });
+	const toolchain = job.steps.find((step) => step.name === "Pin and verify toolchain");
+	assert.ok(toolchain);
+	assert.match(toolchain.run, /test "\$\(uv --version\)" = "uv 0\.12\.6"/u);
+});
+
+test("coding-agent process regressions run in a dedicated serial lane", () => {
+	const scripts = JSON.parse(read("packages/coding-agent/package.json")).scripts;
+	assert.equal(
+		scripts["test:ci"],
+		"tsx src/core/kernel/bootstrap-cli.ts && vitest --run --exclude test/daemon-supervisor-process.test.ts --exclude test/suite/regressions/4603-worker-recovery.test.ts",
+	);
+	assert.equal(
+		scripts["test:process"],
+		"vitest --run --no-file-parallelism test/daemon-supervisor-process.test.ts test/suite/regressions/4603-worker-recovery.test.ts",
+	);
+	assert.equal(
+		scripts["test:process-stress"],
+		"vitest --run --tagsFilter process-stress test/daemon-supervisor-process.test.ts",
+	);
 });
 
 test("publication is exact-tag, exact-artifact, minimal-permission, and approval gated", () => {
@@ -150,6 +179,8 @@ test("Ubuntu qualification writer binds clean pack, verifier, toolchain, gates, 
 		assert.equal(report.runId, "123");
 		assert.equal(report.runAttempt, 2);
 		assert.equal(report.toolchain.node, "22.22.0");
+		assert.equal(report.toolchain.npm, "10.9.2");
+		assert.equal(report.toolchain.uv, "0.12.6");
 		assert.equal(report.artifact.sha256, digest);
 		for (const gate of Object.values(report.gates)) {
 			assert.equal(gate.status, "passed");

@@ -73,7 +73,7 @@ function main() {
 		runAttempt,
 		commit: verified.sourceCommit,
 		tree: pack.source.trackedSourceManifestSha256,
-		toolchain: { node: "22.22.0", npm: "10.9.2" },
+		toolchain: { node: "22.22.0", npm: "10.9.2", uv: "0.12.6" },
 		gates,
 		artifact: {
 			filename: pack.artifact.filename,
