@@ -44,9 +44,13 @@ jobs:
         shell: bash
         run: |
           npm install --global npm@10.9.2
-          test "$(node --version)" = "v22.22.0"
-          test "$(npm --version)" = "10.9.2"
-          test "$(uv --version)" = "uv 0.12.6"
+          node_version="$(node --version)"
+          npm_version="$(npm --version)"
+          uv_version="$(uv --version | awk '{print $2}')"
+          printf 'node=%s npm=%s uv=%s\n' "$node_version" "$npm_version" "$uv_version"
+          test "$node_version" = "v22.22.0"
+          test "$npm_version" = "10.9.2"
+          test "$uv_version" = "0.12.6"
 
       - name: Frozen install
         run: npm ci --ignore-scripts

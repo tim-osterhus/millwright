@@ -72,7 +72,11 @@ test("CI provisions and verifies the exact uv toolchain without caching", () => 
 	assert.deepEqual(uvSetup.with, { version: "0.12.6", "enable-cache": false });
 	const toolchain = job.steps.find((step) => step.name === "Pin and verify toolchain");
 	assert.ok(toolchain);
-	assert.match(toolchain.run, /test "\$\(uv --version\)" = "uv 0\.12\.6"/u);
+	assert.match(toolchain.run, /node_version="\$\(node --version\)"/u);
+	assert.match(toolchain.run, /npm_version="\$\(npm --version\)"/u);
+	assert.match(toolchain.run, /uv_version="\$\(uv --version \| awk '\{print \$2\}'\)"/u);
+	assert.match(toolchain.run, /printf 'node=%s npm=%s uv=%s\\n'/u);
+	assert.match(toolchain.run, /test "\$uv_version" = "0\.12\.6"/u);
 });
 
 test("coding-agent process regressions run in a dedicated serial lane", () => {
