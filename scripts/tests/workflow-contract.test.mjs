@@ -91,7 +91,7 @@ test("coding-agent process regressions run in a dedicated serial lane", () => {
 	);
 	assert.equal(
 		scripts["test:process-stress"],
-		"vitest --run --no-file-parallelism --tagsFilter process-stress test/daemon-supervisor-process.test.ts test/footer-data-provider.test.ts",
+		"vitest --run --no-file-parallelism --tagsFilter process-stress test/daemon-supervisor-process.test.ts test/footer-data-provider.test.ts test/suite/agent-session-autonomous.test.ts",
 	);
 	assert.equal(
 		scripts["test:kernel"],

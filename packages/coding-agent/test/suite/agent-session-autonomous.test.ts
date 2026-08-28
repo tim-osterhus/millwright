@@ -424,7 +424,9 @@ describe("AgentSession autonomous mode", () => {
 		expect(state.lastGateFailure?.output.length).toBeLessThan(6100);
 	});
 
-	it("terminates the autonomous gate process tree when the timeout expires", async () => {
+	it("terminates the autonomous gate process tree when the timeout expires", {
+		tags: ["process-stress"],
+	}, async () => {
 		const tempDir = join(
 			process.cwd(),
 			`.tmp-autonomous-process-tree-${Date.now()}-${Math.random().toString(36).slice(2)}`,
