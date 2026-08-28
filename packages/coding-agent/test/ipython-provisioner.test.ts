@@ -12,13 +12,13 @@ let tempDir = "";
 
 // These tests count spawns of a stub python; the default-on forkserver adds an
 // extra spawn + ready handshake the stub never answers, so pin direct-spawn.
-const savedForkFlag = process.env.PRIME_AGENT_KERNEL_FORKSERVER;
+const savedForkFlag = process.env.MILLWRIGHT_KERNEL_FORKSERVER;
 beforeAll(() => {
-	process.env.PRIME_AGENT_KERNEL_FORKSERVER = "0";
+	process.env.MILLWRIGHT_KERNEL_FORKSERVER = "0";
 });
 afterAll(() => {
-	if (savedForkFlag === undefined) delete process.env.PRIME_AGENT_KERNEL_FORKSERVER;
-	else process.env.PRIME_AGENT_KERNEL_FORKSERVER = savedForkFlag;
+	if (savedForkFlag === undefined) delete process.env.MILLWRIGHT_KERNEL_FORKSERVER;
+	else process.env.MILLWRIGHT_KERNEL_FORKSERVER = savedForkFlag;
 });
 
 function writeFakePython(opts: { sleepSeconds?: number } = {}): { python: string; countRuns: () => number } {
