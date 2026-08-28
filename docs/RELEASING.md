@@ -14,23 +14,41 @@ only the artifact qualified by B004 and recorded in the immutable
   this release for npm trusted-publishing OIDC.
 - The `npm-production` GitHub environment exists, requires operator approval,
   and is configured for npm trusted publishing.
-- `millwright-agent` already exists on npm under the intended maintainer account;
-  its trusted publisher is bound to `tim-osterhus/millwright`,
-  `publish-npm.yml`, environment `npm-production`, and the `npm publish`
-  action.
+- `millwright-agent@0.0.0` exists as a nonfunctional namespace bootstrap under
+  `tim-osterhus`. Its trusted publisher is bound to
+  `tim-osterhus/millwright`, `publish-npm.yml`, environment `npm-production`,
+  and direct `npm publish` only.
+- Package publishing requires MFA and disallows automation-token publication.
 - The release version remains `0.0.1`, the package remains
   `millwright-agent`, and the artifact remains
   `millwright-agent-0.0.1.tgz`.
 
-### Initial registry bootstrap gate
+### Completed registry bootstrap state
 
-npm trusted-publisher configuration requires an existing registry package. If
-`npm view millwright-agent` still returns `E404`, stop before B004 creates a
-release manifest or tag. Establishing the initial package entry is a separate
-operator-authorized bootstrap action; this repository contains no token-based
-or placeholder-publish fallback and neither B003 nor B004 authorizes one. After
-the package entry exists, configure and verify the exact trusted-publisher
-binding above before resuming qualification.
+The operator authorized and published `millwright-agent@0.0.0` solely to claim
+the npm namespace before trusted-publisher configuration. The package contains
+no executable or runtime code. npm created both `bootstrap` and `latest`
+pointers to `0.0.0` during the first publication and rejected authenticated
+removal of `latest`. The operator authorized that pointer only until the
+functional `0.0.1` release.
+
+Version `0.0.0` is deprecated with this warning:
+
+```text
+Nonfunctional namespace bootstrap. Use millwright-agent@0.0.1 or later when available.
+```
+
+Before B004 creates a release manifest or tag, verify all of these conditions:
+
+- `0.0.0` is the only published version.
+- `bootstrap` and transient `latest` both point to `0.0.0`.
+- The deprecation warning matches the text above.
+- The trusted publisher and `npm-production` protection match the prerequisites.
+- `0.0.1` does not exist.
+
+Stop when any condition differs. Do not unpublish `0.0.0` or move either
+dist-tag manually. The successful `0.0.1` publication replaces `latest` with
+the functional release. Keep `bootstrap` on the deprecated namespace artifact.
 
 ## Qualification and release sequence
 
@@ -66,8 +84,9 @@ binding above before resuming qualification.
    B004 operator record. The protected job downloads that one current-run
    artifact, recomputes both digests, and publishes exactly the tarball with npm
    provenance.
-11. Confirm the published package metadata and installed `millwright --version`
-    before creating any GitHub release notes.
+11. Confirm the published package metadata, `latest: 0.0.1`, retained
+    `bootstrap: 0.0.0`, and installed `millwright --version` before creating
+    any GitHub release notes.
 
 Approval must occur before the verified handoff artifact's 30-day retention
 expires. After expiry, rerun the workflow from the same immutable tag, confirm
