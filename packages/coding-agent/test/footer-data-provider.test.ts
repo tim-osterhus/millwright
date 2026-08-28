@@ -167,7 +167,9 @@ describe("FooterDataProvider reftable branch detection", () => {
 		}
 	});
 
-	it("does not notify listeners when reftable updates keep the same branch", async () => {
+	it("does not notify listeners when reftable updates keep the same branch", {
+		tags: ["process-stress"],
+	}, async () => {
 		const { worktreeDir, reftableDir } = createReftableWorktree(tempDir);
 		process.chdir(worktreeDir);
 
@@ -211,7 +213,7 @@ describe("FooterDataProvider reftable branch detection", () => {
 		}
 	});
 
-	it("updates the cached branch when the reftable directory changes", async () => {
+	it("updates the cached branch when the reftable directory changes", { tags: ["process-stress"] }, async () => {
 		const { worktreeDir, reftableDir } = createReftableWorktree(tempDir);
 		process.chdir(worktreeDir);
 
