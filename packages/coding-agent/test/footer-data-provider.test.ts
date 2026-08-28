@@ -190,7 +190,7 @@ describe("FooterDataProvider reftable branch detection", () => {
 		}
 	});
 
-	it("debounces rapid reftable updates into a single async refresh", async () => {
+	it("debounces rapid reftable updates into a single async refresh", { tags: ["process-stress"] }, async () => {
 		const { worktreeDir, reftableDir } = createReftableWorktree(tempDir);
 		process.chdir(worktreeDir);
 

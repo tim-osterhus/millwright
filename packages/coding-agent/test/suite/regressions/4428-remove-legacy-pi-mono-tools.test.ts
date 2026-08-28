@@ -108,7 +108,7 @@ describe("regression #4428: remove legacy pi-mono built-in tools", () => {
 		session.dispose();
 	});
 
-	it("applies shell settings to ipython bash cells", async () => {
+	it("applies shell settings to ipython bash cells", { tags: ["kernel-heavy"] }, async () => {
 		const shellPath = join(tempDir, "custom-shell.sh");
 		writeFileSync(shellPath, "#!/bin/sh\nprintf 'custom-shell\\n'\nexec /bin/sh \"$@\"\n");
 		chmodSync(shellPath, 0o755);

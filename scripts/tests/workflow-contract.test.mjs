@@ -91,11 +91,11 @@ test("coding-agent process regressions run in a dedicated serial lane", () => {
 	);
 	assert.equal(
 		scripts["test:process-stress"],
-		"vitest --run --tagsFilter process-stress test/daemon-supervisor-process.test.ts",
+		"vitest --run --no-file-parallelism --tagsFilter process-stress test/daemon-supervisor-process.test.ts test/footer-data-provider.test.ts",
 	);
 	assert.equal(
 		scripts["test:kernel"],
-		"vitest --run --no-file-parallelism --tagsFilter kernel-heavy test/acp-kernel-features.test.ts test/acp-cold-cli.test.ts test/kernel-attach-image-skill.test.ts test/kernel-agent-message-skill.test.ts test/kernel-goal-skill.test.ts test/kernel-state-roundtrip.test.ts",
+		"vitest --run --no-file-parallelism --tagsFilter kernel-heavy test/acp-kernel-features.test.ts test/acp-cold-cli.test.ts test/kernel-attach-image-skill.test.ts test/kernel-agent-message-skill.test.ts test/kernel-goal-skill.test.ts test/kernel-state-roundtrip.test.ts test/suite/regressions/4428-remove-legacy-pi-mono-tools.test.ts",
 	);
 });
 
