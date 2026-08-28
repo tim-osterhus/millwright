@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import tempfile
 import time
+import types
 import unittest
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -205,9 +207,25 @@ class McpIntegrationTest(unittest.TestCase):
         async def fake_host_request(req_type, payload):
             return {}  # no host URL override; _resolve_url falls back to self.url
 
+        mcp_module = types.ModuleType("mcp")
+        session_cls = mock.MagicMock()
+        mcp_module.ClientSession = session_cls
+
+        class _AsyncClient:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+        httpx_module = types.ModuleType("httpx")
+        httpx_module.AsyncClient = _AsyncClient
         with mock.patch.object(mcp_base, "host_request", fake_host_request), \
              mock.patch.object(mcp_base, "_resolve_streamable_http", lambda: transport), \
-             mock.patch("mcp.ClientSession") as session_cls:
+             mock.patch.dict(sys.modules, {"mcp": mcp_module, "httpx": httpx_module}):
             session = mock.MagicMock()
             session.initialize = mock.AsyncMock()
             session.call_tool = mock.AsyncMock(
