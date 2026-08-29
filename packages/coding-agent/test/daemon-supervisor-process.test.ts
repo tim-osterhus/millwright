@@ -1,6 +1,15 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,6 +25,7 @@ import { readSessionInfo, SessionManager } from "../src/core/session-manager.js"
 import { DaemonAgentConnection } from "../src/modes/agent-connection/daemon-agent-connection.js";
 import { DaemonClient, getDaemonSocketCloseReason } from "../src/modes/daemon/daemon-client.js";
 import type { SessionSummary } from "../src/modes/daemon/daemon-session-list.js";
+import { DaemonSupervisor } from "../src/modes/daemon/daemon-supervisor.js";
 import {
 	DAEMON_WORKER_ACTIVE_SESSION_ID_ENV,
 	DAEMON_WORKER_RECOVERY_JOURNAL_ENV,
@@ -99,6 +109,34 @@ function tempDir(): string {
 	const directory = mkdtempSync(join(tmpdir(), "prime-daemon-supervisor-test-"));
 	tempDirs.push(directory);
 	return directory;
+}
+
+type UnsafeStatePathCase = { name: string; value: string };
+
+function createUnsafeStatePathMatrix(root: string): UnsafeStatePathCase[] {
+	const primeRoot = join(root, ".prime");
+	const millraceCliRoot = join(root, ".millrace-cli");
+	const safeRoot = join(root, "safe");
+	mkdirSync(primeRoot, { recursive: true });
+	mkdirSync(millraceCliRoot, { recursive: true });
+	mkdirSync(safeRoot, { recursive: true });
+	writeFileSync(join(primeRoot, "sentinel.txt"), "prime-sentinel");
+	writeFileSync(join(millraceCliRoot, "sentinel.txt"), "millrace-cli-sentinel");
+	symlinkSync(primeRoot, join(safeRoot, "prime-link"), "dir");
+	symlinkSync(millraceCliRoot, join(safeRoot, "millrace-cli-link"), "dir");
+	symlinkSync(join(primeRoot, "missing-target"), join(safeRoot, "dangling-prime-link"), "dir");
+	symlinkSync(join(millraceCliRoot, "missing-target"), join(safeRoot, "dangling-millrace-cli-link"), "dir");
+	return [
+		{ name: "relative", value: join("relative", "state") },
+		{ name: "exact .prime", value: primeRoot },
+		{ name: ".prime descendant", value: join(primeRoot, "descendant") },
+		{ name: "exact .millrace-cli", value: millraceCliRoot },
+		{ name: ".millrace-cli descendant", value: join(millraceCliRoot, "descendant") },
+		{ name: "existing symlink to .prime", value: join(safeRoot, "prime-link", "descendant") },
+		{ name: "existing symlink to .millrace-cli", value: join(safeRoot, "millrace-cli-link", "descendant") },
+		{ name: "dangling symlink to .prime", value: join(safeRoot, "dangling-prime-link", "descendant") },
+		{ name: "dangling symlink to .millrace-cli", value: join(safeRoot, "dangling-millrace-cli-link", "descendant") },
+	];
 }
 
 function spawnSupervisor(
@@ -309,6 +347,214 @@ async function startBlockingBash(client: DaemonClient, activeSessionId: string, 
 	}
 	await waitForCondition(() => existsSync(readyPath), `Blocking bash process did not become ready: ${readyPath}`);
 }
+
+describe("daemon supervisor persisted state guards", () => {
+	it("ignores unsafe persisted supervisor config and worker descriptors", () => {
+		const root = tempDir();
+		const agentDir = join(root, "agent");
+		const projectDir = join(root, "project");
+		const legacyDir = join(root, ".prime");
+		const descriptorDir = join(agentDir, "descriptors");
+		const socketPath = join(root, "daemon.sock");
+		mkdirSync(projectDir, { recursive: true });
+		mkdirSync(legacyDir, { recursive: true });
+		mkdirSync(descriptorDir, { recursive: true });
+		writeFileSync(join(legacyDir, "sentinel.txt"), "legacy-sentinel");
+		writeFileSync(
+			join(descriptorDir, "supervisor-config"),
+			JSON.stringify({
+				version: 1,
+				socketPath,
+				defaultSessionConfig: { agentDir: legacyDir, sessionDir: legacyDir },
+			}),
+		);
+		const unsafeSessionPath = join(legacyDir, "session.jsonl");
+		writeFileSync(
+			join(descriptorDir, "unsafe.json"),
+			JSON.stringify({
+				version: 1,
+				workerId: "unsafe-worker",
+				pid: 999999,
+				socketPath: join(root, "worker.sock"),
+				recoveryJournalPath: join(root, "outside-recovery.jsonl"),
+				orphanProcessJournalPath: join(root, "outside-orphans.jsonl"),
+				supervisorSocketPath: socketPath,
+				authenticationToken: "token",
+				rootActiveSessionId: "root",
+				sessionFile: unsafeSessionPath,
+				createdAt: new Date(0).toISOString(),
+				updatedAt: new Date(0).toISOString(),
+				lifecycle: "ready",
+				createCommand: {
+					type: "create",
+					sessionPath: unsafeSessionPath,
+					config: { agentDir: legacyDir, sessionDir: legacyDir },
+				},
+				consecutiveFailures: 0,
+			}),
+		);
+
+		const supervisor = new DaemonSupervisor(socketPath, {
+			defaultSessionConfig: { agentDir, cwd: projectDir },
+			descriptorDir,
+		});
+		const internals = supervisor as unknown as {
+			defaultSessionConfig: { agentDir?: string; sessionDir?: string };
+			loadWorkerDescriptors(): void;
+			workers: Map<string, { descriptor: { recoveryJournalPath: string; orphanProcessJournalPath?: string } }>;
+		};
+		expect(internals.defaultSessionConfig).toMatchObject({ agentDir, cwd: projectDir });
+		internals.loadWorkerDescriptors();
+		expect(internals.workers.size).toBe(0);
+		expect(readFileSync(join(legacyDir, "sentinel.txt"), "utf8")).toBe("legacy-sentinel");
+	});
+
+	it("rejects the complete persisted state-field matrix before adoption", () => {
+		const root = tempDir();
+		const agentDir = join(root, "agent");
+		const projectDir = join(root, "project");
+		const descriptorDir = join(agentDir, "descriptors");
+		const socketPath = join(root, "daemon.sock");
+		const safeSessionDir = join(root, "safe-sessions");
+		const safeSessionFile = join(safeSessionDir, "safe.jsonl");
+		const matrix = createUnsafeStatePathMatrix(root);
+		mkdirSync(projectDir, { recursive: true });
+		mkdirSync(descriptorDir, { recursive: true });
+
+		const resetDescriptorDir = (): void => {
+			rmSync(descriptorDir, { recursive: true, force: true });
+			mkdirSync(descriptorDir, { recursive: true });
+		};
+		const assertSentinelsUntouched = (): void => {
+			expect(readFileSync(join(root, ".prime", "sentinel.txt"), "utf8")).toBe("prime-sentinel");
+			expect(readFileSync(join(root, ".millrace-cli", "sentinel.txt"), "utf8")).toBe("millrace-cli-sentinel");
+		};
+
+		for (const [field, value] of matrix.flatMap((entry) =>
+			(["agentDir", "sessionDir"] as const).map((fieldName) => [fieldName, entry] as const),
+		)) {
+			resetDescriptorDir();
+			writeFileSync(
+				join(descriptorDir, "supervisor-config"),
+				JSON.stringify({
+					version: 1,
+					socketPath,
+					defaultSessionConfig: {
+						agentDir,
+						sessionDir: safeSessionDir,
+						cwd: projectDir,
+						[field]: value.value,
+					},
+				}),
+			);
+			const supervisor = new DaemonSupervisor(socketPath, {
+				defaultSessionConfig: { agentDir, sessionDir: safeSessionDir, cwd: projectDir },
+				descriptorDir,
+			});
+			const internals = supervisor as unknown as {
+				defaultSessionConfig: { agentDir?: string; sessionDir?: string; cwd?: string };
+			};
+			expect(internals.defaultSessionConfig).toMatchObject({
+				agentDir,
+				sessionDir: safeSessionDir,
+				cwd: projectDir,
+			});
+			assertSentinelsUntouched();
+		}
+
+		const sessionPathMatrix = matrix.filter(({ name }) => name !== "relative");
+		for (const [field, value] of sessionPathMatrix.flatMap((entry) =>
+			(["sessionFile", "createCommand.sessionPath"] as const).map((fieldName) => [fieldName, entry] as const),
+		)) {
+			resetDescriptorDir();
+			const descriptor: Record<string, unknown> = {
+				version: 1,
+				workerId: `unsafe-${field.replaceAll(".", "-")}-${value.name.replaceAll(" ", "-")}`,
+				pid: 999999,
+				socketPath: join(root, "worker.sock"),
+				recoveryJournalPath: join(root, "outside-recovery.jsonl"),
+				orphanProcessJournalPath: join(root, "outside-orphans.jsonl"),
+				supervisorSocketPath: socketPath,
+				authenticationToken: "token",
+				rootActiveSessionId: "root",
+				sessionFile: safeSessionFile,
+				createdAt: new Date(0).toISOString(),
+				updatedAt: new Date(0).toISOString(),
+				lifecycle: "ready",
+				createCommand: {
+					type: "create",
+					sessionPath: safeSessionFile,
+					config: { agentDir, sessionDir: safeSessionDir, cwd: projectDir },
+				},
+				consecutiveFailures: 0,
+			};
+			if (field === "sessionFile") {
+				descriptor.sessionFile = value.value;
+			} else {
+				(descriptor.createCommand as Record<string, unknown>).sessionPath = value.value;
+			}
+			writeFileSync(join(descriptorDir, "unsafe.json"), JSON.stringify(descriptor));
+			const supervisor = new DaemonSupervisor(socketPath, {
+				defaultSessionConfig: { agentDir, sessionDir: safeSessionDir, cwd: projectDir },
+				descriptorDir,
+			});
+			const internals = supervisor as unknown as {
+				loadWorkerDescriptors(): void;
+				workers: Map<string, unknown>;
+			};
+			internals.loadWorkerDescriptors();
+			expect(internals.workers.size, `${field} ${value.name}`).toBe(0);
+			assertSentinelsUntouched();
+		}
+	});
+
+	it("derives persisted worker journals inside the descriptor directory", () => {
+		const root = tempDir();
+		const agentDir = join(root, "agent");
+		const projectDir = join(root, "project");
+		const descriptorDir = join(agentDir, "descriptors");
+		const socketPath = join(root, "daemon.sock");
+		const safeSessionPath = join(root, "sessions", "session.jsonl");
+		mkdirSync(projectDir, { recursive: true });
+		mkdirSync(descriptorDir, { recursive: true });
+		writeFileSync(
+			join(descriptorDir, "safe.json"),
+			JSON.stringify({
+				version: 1,
+				workerId: "safe-worker",
+				pid: 999999,
+				socketPath: join(root, "worker.sock"),
+				recoveryJournalPath: join(root, "outside-recovery.jsonl"),
+				orphanProcessJournalPath: join(root, "outside-orphans.jsonl"),
+				supervisorSocketPath: socketPath,
+				authenticationToken: "token",
+				rootActiveSessionId: "root",
+				sessionFile: safeSessionPath,
+				createdAt: new Date(0).toISOString(),
+				updatedAt: new Date(0).toISOString(),
+				lifecycle: "ready",
+				createCommand: {
+					type: "create",
+					sessionPath: safeSessionPath,
+					config: { agentDir, sessionDir: join(root, "sessions") },
+				},
+				consecutiveFailures: 0,
+			}),
+		);
+		const supervisor = new DaemonSupervisor(socketPath, {
+			defaultSessionConfig: { agentDir, cwd: projectDir },
+			descriptorDir,
+		});
+		const internals = supervisor as unknown as {
+			loadWorkerDescriptors(): void;
+			workers: Map<string, { descriptor: { recoveryJournalPath: string; orphanProcessJournalPath?: string } }>;
+		};
+		internals.loadWorkerDescriptors();
+		const descriptor = internals.workers.get("safe-worker")?.descriptor;
+		expect(descriptor?.recoveryJournalPath).toBe(join(descriptorDir, "safe-worker.recovery.jsonl"));
+		expect(descriptor?.orphanProcessJournalPath).toBe(join(descriptorDir, "safe-worker.orphans.jsonl"));
+	});
+});
 
 describe("daemon supervisor resident workers", () => {
 	it("lists, creates, and attaches passive children through their owning worker", async () => {
@@ -749,6 +995,103 @@ describe("daemon supervisor resident workers", () => {
 		await replacementClient.request({ type: "shutdown" });
 		replacementClient.close();
 		await waitForSocketGone(socketPath);
+	});
+
+	it("rejects the complete unsafe direct-socket matrix before catalog access or worker launch", async () => {
+		const root = tempDir();
+		const agentDir = join(root, "agent");
+		const projectDir = join(root, "project");
+		const socketPath = join(tmpdir(), `prime-supervisor-path-guard-${process.pid}-${randomUUID().slice(0, 8)}.sock`);
+		const matrix = createUnsafeStatePathMatrix(root);
+		mkdirSync(projectDir, { recursive: true });
+
+		const supervisor = spawnSupervisor(agentDir, socketPath, projectDir);
+		const client = await connectEventually(socketPath, supervisor);
+		const assertSentinelsUntouched = (): void => {
+			expect(readFileSync(join(root, ".prime", "sentinel.txt"), "utf8")).toBe("prime-sentinel");
+			expect(readFileSync(join(root, ".millrace-cli", "sentinel.txt"), "utf8")).toBe("millrace-cli-sentinel");
+		};
+
+		const relativeSessionPaths = ["create", "switch", "rename", "delete"].map((name) =>
+			join("relative", `${name}.jsonl`),
+		);
+		mkdirSync(join(projectDir, "relative"), { recursive: true });
+		for (const [index, relativeSessionPath] of relativeSessionPaths.entries()) {
+			writeFileSync(
+				join(projectDir, relativeSessionPath),
+				`${JSON.stringify({ type: "session", id: `relative-${index}`, timestamp: new Date(0).toISOString(), cwd: projectDir })}\n`,
+			);
+		}
+		const relativeConfig = {
+			cwd: projectDir,
+			agentDir,
+			sessionDir: join(projectDir, "relative"),
+			noTools: true,
+			noExtensions: true,
+		};
+		const relativeCreate = await client.request({
+			type: "create",
+			sessionPath: relativeSessionPaths[0],
+			config: relativeConfig,
+		});
+		expect(relativeCreate).toMatchObject({ success: true });
+		const relativeSummary = requireSummary(relativeCreate.success ? relativeCreate.data : undefined);
+		const relativeActiveSessionId = relativeSummary.activeSessionId ?? relativeSummary.id;
+		const relativeSwitch = await client.request({
+			type: "switch_session",
+			activeSessionId: relativeActiveSessionId,
+			sessionPath: relativeSessionPaths[1],
+		});
+		expect(relativeSwitch).toMatchObject({ success: true });
+		const relativeRename = await client.request({
+			type: "rename_saved_session",
+			sessionPath: relativeSessionPaths[2],
+			name: "relative rename",
+		});
+		expect(relativeRename).toMatchObject({ success: true });
+		const relativeDelete = await client.request({
+			type: "delete_saved_session",
+			sessionPath: relativeSessionPaths[3],
+		});
+		expect(relativeDelete).toMatchObject({ success: true });
+		expect(existsSync(join(projectDir, relativeSessionPaths[3]))).toBe(false);
+		const relativeWorkerDescriptorCount = countWorkerDescriptors(agentDir);
+		expect(relativeWorkerDescriptorCount).toBeGreaterThan(0);
+
+		for (const { name, value } of matrix) {
+			for (const command of [
+				{ type: "list", all: true, cwd: projectDir, sessionDir: value },
+				{ type: "list_saved_sessions", cwd: projectDir, scope: "all" as const, sessionDir: value },
+				{ type: "create", config: { cwd: projectDir, agentDir: value } },
+				{ type: "create", config: { cwd: projectDir, sessionDir: value } },
+			]) {
+				const response = await client.request(command as never);
+				expect(response, `${name} ${command.type}`).toMatchObject({ success: false });
+				expect(response.success ? "" : response.error).toMatch(/legacy|unsafe|absolute|resolve/i);
+			}
+			assertSentinelsUntouched();
+		}
+
+		for (const { name, value } of matrix.filter(({ name: caseName }) => caseName !== "relative")) {
+			for (const command of [
+				{ type: "create", sessionPath: value, config: { cwd: projectDir, agentDir } },
+				{ type: "switch_session", activeSessionId: "missing", sessionPath: value },
+				{ type: "rename_saved_session", sessionPath: value, name: "renamed" },
+				{ type: "delete_saved_session", sessionPath: value },
+			]) {
+				const response = await client.request(command as never);
+				expect(response, `${name} ${command.type}`).toMatchObject({ success: false });
+				expect(response.success ? "" : response.error).toMatch(/legacy|unsafe|absolute|resolve/i);
+			}
+			assertSentinelsUntouched();
+		}
+
+		expect(countWorkerDescriptors(agentDir)).toBe(relativeWorkerDescriptorCount);
+		const shutdown = await client.request({ type: "shutdown" });
+		expect(shutdown).toMatchObject({ success: true });
+		client.close();
+		await waitForSocketGone(socketPath);
+		expect(countWorkerDescriptors(agentDir)).toBe(0);
 	});
 
 	it("survives a worker process spawn error", { tags: ["process-stress"] }, async () => {

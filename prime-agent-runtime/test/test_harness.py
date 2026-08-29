@@ -51,27 +51,36 @@ class HarnessStateTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "legacy|unsafe"):
                     harness_module._agent_dir()
 
-    def test_agent_dir_rejects_relative_legacy_and_symlink_escaped_overrides(self) -> None:
+    def test_agent_dir_rejects_complete_legacy_and_tilde_matrix(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            legacy = root / ".prime"
+            legacy_roots = (root / ".prime", root / ".millrace-cli")
             safe = root / "safe"
-            legacy.mkdir()
             safe.mkdir()
-            (safe / "legacy-link").symlink_to(legacy, target_is_directory=True)
-            unsafe = [
+            for legacy in legacy_roots:
+                legacy.mkdir()
+            symlink_values = []
+            for name, legacy in (("prime", legacy_roots[0]), ("millrace-cli", legacy_roots[1])):
+                existing = safe / f"{name}-link"
+                dangling = safe / f"dangling-{name}-link"
+                existing.symlink_to(legacy, target_is_directory=True)
+                dangling.symlink_to(legacy / "missing", target_is_directory=True)
+                symlink_values.extend((existing / "child", dangling / "child"))
+            unsafe = (
+                "~/.millwright",
                 "relative",
-                str(legacy),
-                str(legacy / "child"),
-                str(root / ".millrace-cli" / "child"),
-                str(safe / "legacy-link" / "child"),
-            ]
+                *(value for legacy in legacy_roots for value in (legacy, legacy / "child")),
+                *symlink_values,
+            )
             for value in unsafe:
                 with self.subTest(value=value), mock.patch.dict(
-                    os.environ, {"MILLWRIGHT_CODING_AGENT_DIR": value}, clear=False
+                    os.environ, {"MILLWRIGHT_CODING_AGENT_DIR": str(value)}, clear=False
                 ):
-                    with self.assertRaisesRegex(ValueError, "absolute|legacy|unsafe"):
+                    with self.assertRaisesRegex(ValueError, "absolute|legacy|unsafe|resolve"):
                         harness_module._agent_dir()
+            safe_value = safe / "nested"
+            with mock.patch.dict(os.environ, {"MILLWRIGHT_CODING_AGENT_DIR": str(safe_value)}, clear=False):
+                self.assertEqual(harness_module._agent_dir(), safe_value)
 
     def test_crud_for_all_entry_kinds(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -955,6 +964,93 @@ class HarnessStateTest(unittest.TestCase):
             self.assertIsNone(
                 HarnessState(local_dir / "harness_state.json").get("memory", "alias_global")
             )
+
+    def test_state_roots_reject_unsafe_inputs_before_creating_state_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            legacy_roots = (root / ".prime", root / ".millrace-cli")
+            safe = root / "safe"
+            for legacy in legacy_roots:
+                legacy.mkdir()
+            safe.mkdir()
+            symlink_values = []
+            for name, legacy in (("prime", legacy_roots[0]), ("millrace-cli", legacy_roots[1])):
+                existing = safe / f"{name}-link"
+                dangling = safe / f"dangling-{name}-link"
+                existing.symlink_to(legacy, target_is_directory=True)
+                dangling.symlink_to(legacy / "missing", target_is_directory=True)
+                symlink_values.extend((existing / "child", dangling / "child"))
+            unsafe_values = (
+                "relative/state",
+                *(value for legacy in legacy_roots for value in (legacy, legacy / "child")),
+                *symlink_values,
+            )
+            env_names = (
+                "RLM_HARNESS_STATE_DIR",
+                "RLM_GLOBAL_HARNESS_STATE_DIR",
+                "RLM_SESSION_DIR",
+            )
+            previous = {name: os.environ.get(name) for name in env_names}
+            previous_home = os.environ.get("HOME")
+
+            def assert_unsafe(value: str | Path, *, global_scope: bool = False) -> None:
+                with self.assertRaisesRegex(ValueError, "absolute|legacy|unsafe|resolve"):
+                    harness_module._state_file(value, global_=global_scope)
+                self.assertFalse(any(root.rglob("harness_state.json")))
+
+            try:
+                for name in env_names:
+                    for value in unsafe_values:
+                        with self.subTest(name=name, value=value):
+                            for other in env_names:
+                                os.environ.pop(other, None)
+                            os.environ[name] = str(value)
+                            global_scope = name == "RLM_GLOBAL_HARNESS_STATE_DIR"
+                            assert_unsafe(value, global_scope=global_scope)
+                            with self.assertRaisesRegex(ValueError, "absolute|legacy|unsafe|resolve"):
+                                HarnessState(scope="global" if global_scope else "local")
+                            self.assertFalse(any(root.rglob("harness_state.json")))
+
+                for value in unsafe_values:
+                    with self.subTest(name="state_dir", value=value):
+                        for other in env_names:
+                            os.environ.pop(other, None)
+                        assert_unsafe(value)
+
+                os.environ["HOME"] = str(root)
+                safe_dir = root / "safe-state" / "nested"
+                os.environ["RLM_HARNESS_STATE_DIR"] = str(safe_dir)
+                self.assertEqual(harness_module._state_file(), safe_dir.resolve() / "harness_state.json")
+                os.environ["RLM_HARNESS_STATE_DIR"] = "~/tilde-state"
+                self.assertEqual(harness_module._state_file(), root.resolve() / "tilde-state" / "harness_state.json")
+                os.environ["RLM_GLOBAL_HARNESS_STATE_DIR"] = "~/tilde-global"
+                os.environ.pop("RLM_HARNESS_STATE_DIR", None)
+                self.assertEqual(
+                    harness_module._state_file(global_=True),
+                    root.resolve() / "tilde-global" / "harness_state.json",
+                )
+                os.environ.pop("RLM_GLOBAL_HARNESS_STATE_DIR", None)
+                os.environ["RLM_SESSION_DIR"] = "~/tilde-session"
+                self.assertEqual(
+                    harness_module._state_file(),
+                    root.resolve() / "tilde-session" / "harness" / "harness_state.json",
+                )
+                for other in env_names:
+                    os.environ.pop(other, None)
+                self.assertEqual(
+                    harness_module._state_file("~/tilde-direct"),
+                    root.resolve() / "tilde-direct" / "harness_state.json",
+                )
+            finally:
+                for name, value in previous.items():
+                    if value is None:
+                        os.environ.pop(name, None)
+                    else:
+                        os.environ[name] = value
+                if previous_home is None:
+                    os.environ.pop("HOME", None)
+                else:
+                    os.environ["HOME"] = previous_home
 
     def test_callable_rlm_exposes_harness_state_helpers(self) -> None:
         self.assertIs(callable_rlm.harness, package_harness)

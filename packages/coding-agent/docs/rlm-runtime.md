@@ -1,6 +1,6 @@
 # RLM Runtime Architecture
 
-Prime Agent gives each agent session a persistent IPython kernel and a native recursive sub-agent interface. The Python `rlm` package is a model-facing shim; the TypeScript host owns child execution, persistence, usage accounting, and lifecycle.
+Millwright gives each agent session a persistent IPython kernel and a native recursive sub-agent interface. The Python `rlm` package is a model-facing shim; the TypeScript host owns child execution, persistence, usage accounting, and lifecycle.
 
 ## Architecture
 
@@ -75,9 +75,9 @@ The Python side does not call providers or implement an agent loop.
 
 The kernel is created lazily on first IPython use. Python resolution is:
 
-1. `PRIME_AGENT_KERNEL_PYTHON`, when it can import `ipykernel`;
-2. `~/.prime/agent/kernel-venv/bin/python`, bootstrapped with `uv`; or
-3. the XDG data location when `~/.prime` is not writable.
+1. `MILLWRIGHT_KERNEL_PYTHON`, when it can import `ipykernel`;
+2. `~/.millwright/kernel-venv/bin/python`, bootstrapped with `uv`; or
+3. the XDG data location when `~/.millwright` is not writable.
 
 The managed environment includes Python 3.11, `ipykernel`, and `prime-agent-runtime`. A bootstrap marker detects stale environments.
 
@@ -87,7 +87,7 @@ The manager owns the child process, connection directory, ZeroMQ sockets, and a 
 
 ## Jupyter Transport
 
-Prime Agent uses three channels:
+Millwright uses three channels:
 
 ```text
 shell    execute_request, execute_reply, kernel_info_request
@@ -194,7 +194,7 @@ Registry scope follows the parent transcript. An unrelated new parent session do
 
 ## Usage and Cost Attribution
 
-The admission handle does not contain usage or completion data. Prime Agent asynchronously folds the child's assistant usage and cost into the parent assistant turn that launched it.
+The admission handle does not contain usage or completion data. Millwright asynchronously folds the child's assistant usage and cost into the parent assistant turn that launched it.
 
 The parent transcript persists a `child_usage_attributed` entry containing:
 
@@ -208,7 +208,7 @@ On reload, the aggregate is reapplied to the parent message. Context-tree report
 
 `rlm.harness` is a persisted state ledger for prompt notes, memories, reusable skill descriptions, sub-agent specifications, and refinement events. It is not a second execution engine.
 
-Session-local state lives in the session artifact directory under `harness/harness_state.json`. Explicitly global entries live under `~/.prime/agent/harness/`. The Python store reloads after external modification so host-side `/refine` writes and kernel writes do not overwrite each other.
+Session-local state lives in the session artifact directory under `harness/harness_state.json`. Explicitly global entries live under `~/.millwright/harness/`. The Python store reloads after external modification so host-side `/refine` writes and kernel writes do not overwrite each other.
 
 `/refine` runs a dedicated review over the current trajectory and applies small create/update/delete edits. Rollback uses recorded before/after snapshots. The base system prompt remains immutable; refinements are supplemental state.
 
@@ -229,7 +229,7 @@ Goal state, persistence, token and wall-clock accounting, and continuation promp
 For a persisted root session, the relevant layout is:
 
 ```text
-~/.prime/agent/
+~/.millwright/
   sessions/
     <root-session-id>.jsonl
   session-artifacts/

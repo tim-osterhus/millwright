@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -8,6 +8,37 @@ describe("SettingsManager", () => {
 	const testDir = join(process.cwd(), "test-settings-tmp");
 	const agentDir = join(testDir, "agent");
 	const projectDir = join(testDir, "project");
+
+	type UnsafeStatePathCase = { name: string; value: string };
+
+	function createUnsafeStatePathMatrix(root: string): UnsafeStatePathCase[] {
+		const primeRoot = join(root, ".prime");
+		const millraceCliRoot = join(root, ".millrace-cli");
+		const safeRoot = join(root, "safe");
+		mkdirSync(primeRoot, { recursive: true });
+		mkdirSync(millraceCliRoot, { recursive: true });
+		mkdirSync(safeRoot, { recursive: true });
+		writeFileSync(join(primeRoot, "sentinel.txt"), "prime-sentinel");
+		writeFileSync(join(millraceCliRoot, "sentinel.txt"), "millrace-cli-sentinel");
+		symlinkSync(primeRoot, join(safeRoot, "prime-link"), "dir");
+		symlinkSync(millraceCliRoot, join(safeRoot, "millrace-cli-link"), "dir");
+		symlinkSync(join(primeRoot, "missing-target"), join(safeRoot, "dangling-prime-link"), "dir");
+		symlinkSync(join(millraceCliRoot, "missing-target"), join(safeRoot, "dangling-millrace-cli-link"), "dir");
+		return [
+			{ name: "relative", value: join("relative", "state") },
+			{ name: "exact .prime", value: primeRoot },
+			{ name: ".prime descendant", value: join(primeRoot, "descendant") },
+			{ name: "exact .millrace-cli", value: millraceCliRoot },
+			{ name: ".millrace-cli descendant", value: join(millraceCliRoot, "descendant") },
+			{ name: "existing symlink to .prime", value: join(safeRoot, "prime-link", "descendant") },
+			{ name: "existing symlink to .millrace-cli", value: join(safeRoot, "millrace-cli-link", "descendant") },
+			{ name: "dangling symlink to .prime", value: join(safeRoot, "dangling-prime-link", "descendant") },
+			{
+				name: "dangling symlink to .millrace-cli",
+				value: join(safeRoot, "dangling-millrace-cli-link", "descendant"),
+			},
+		];
+	}
 
 	beforeEach(() => {
 		// Clean up and create fresh directories
@@ -458,11 +489,29 @@ describe("SettingsManager", () => {
 			expect(manager.getSessionDir()).toBe("/tmp/sessions");
 		});
 
-		it("should return project sessionDir, overriding global", () => {
-			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ sessionDir: "/global/sessions" }));
-			writeFileSync(join(projectDir, ".millwright", "settings.json"), JSON.stringify({ sessionDir: "./sessions" }));
-			const manager = SettingsManager.create(projectDir, agentDir);
-			expect(manager.getSessionDir()).toBe("./sessions");
+		it("rejects the complete unsafe sessionDir matrix before target access", () => {
+			const matrix = createUnsafeStatePathMatrix(testDir);
+			const globalSettingsPath = join(agentDir, "settings.json");
+			const projectSettingsPath = join(projectDir, ".millwright", "settings.json");
+			for (const settingsPath of [globalSettingsPath, projectSettingsPath]) {
+				for (const { name, value } of matrix) {
+					rmSync(globalSettingsPath, { force: true });
+					rmSync(projectSettingsPath, { force: true });
+					if (settingsPath === projectSettingsPath) {
+						writeFileSync(globalSettingsPath, JSON.stringify({ sessionDir: join(testDir, "safe", "fallback") }));
+					}
+					writeFileSync(settingsPath, JSON.stringify({ sessionDir: value }));
+					const manager = SettingsManager.create(projectDir, agentDir);
+					expect(() => manager.getSessionDir(), `${settingsPath} ${name}`).toThrow(
+						/absolute|legacy|unsafe|resolve/i,
+					);
+					expect(readFileSync(join(testDir, ".prime", "sentinel.txt"), "utf8")).toBe("prime-sentinel");
+					expect(readFileSync(join(testDir, ".millrace-cli", "sentinel.txt"), "utf8")).toBe(
+						"millrace-cli-sentinel",
+					);
+				}
+			}
+			expect(existsSync(join(testDir, "relative"))).toBe(false);
 		});
 
 		it("should expand ~ in sessionDir", () => {

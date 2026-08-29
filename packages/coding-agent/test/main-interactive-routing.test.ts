@@ -1,16 +1,19 @@
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { dirname, join } from "node:path";
+import { describe, expect, test, vi } from "vitest";
+import { parseArgs } from "../src/cli/args.js";
 import { mergeAgentSessionRuntimeConfig } from "../src/core/agent-session-config.js";
 import type { CreateAgentSessionOptions } from "../src/core/sdk.js";
 import {
 	type AppMode,
+	createSessionManager,
 	type DaemonInteractiveSessionManagerDecision,
 	daemonServerDefaultSessionConfig,
 	findActiveDaemonSessionSummaryForInteractiveStartup,
 	findActiveDaemonSessionSummaryForSessionFile,
 	type InteractiveDaemonStartupDecision,
+	main,
 	parseAgentsViewCommand,
 	resolveRuntimeSessionOptions,
 	shouldEnsureDaemonBeforeActiveSessionLookup,
@@ -24,6 +27,43 @@ import {
 	shouldUseEphemeralSessionManagerForDaemonInteractive,
 } from "../src/main.js";
 import type { SessionSummary } from "../src/modes/index.js";
+
+type UnsafeStatePathCase = { name: string; value: string };
+
+function createUnsafeStatePathMatrix(root: string): UnsafeStatePathCase[] {
+	const primeRoot = join(root, ".prime");
+	const millraceCliRoot = join(root, ".millrace-cli");
+	const safeRoot = join(root, "safe");
+	mkdirSync(primeRoot, { recursive: true });
+	mkdirSync(millraceCliRoot, { recursive: true });
+	mkdirSync(safeRoot, { recursive: true });
+	writeFileSync(join(primeRoot, "sentinel.txt"), "prime-sentinel");
+	writeFileSync(join(millraceCliRoot, "sentinel.txt"), "millrace-cli-sentinel");
+	symlinkSync(primeRoot, join(safeRoot, "prime-link"), "dir");
+	symlinkSync(millraceCliRoot, join(safeRoot, "millrace-cli-link"), "dir");
+	symlinkSync(join(primeRoot, "missing-target"), join(safeRoot, "dangling-prime-link"), "dir");
+	symlinkSync(join(millraceCliRoot, "missing-target"), join(safeRoot, "dangling-millrace-cli-link"), "dir");
+	return [
+		{ name: "relative", value: join("relative", "session.jsonl") },
+		{ name: "exact .prime", value: primeRoot },
+		{ name: ".prime descendant", value: join(primeRoot, "descendant", "session.jsonl") },
+		{ name: "exact .millrace-cli", value: millraceCliRoot },
+		{ name: ".millrace-cli descendant", value: join(millraceCliRoot, "descendant", "session.jsonl") },
+		{ name: "existing symlink to .prime", value: join(safeRoot, "prime-link", "descendant", "session.jsonl") },
+		{
+			name: "existing symlink to .millrace-cli",
+			value: join(safeRoot, "millrace-cli-link", "descendant", "session.jsonl"),
+		},
+		{
+			name: "dangling symlink to .prime",
+			value: join(safeRoot, "dangling-prime-link", "descendant", "session.jsonl"),
+		},
+		{
+			name: "dangling symlink to .millrace-cli",
+			value: join(safeRoot, "dangling-millrace-cli-link", "descendant", "session.jsonl"),
+		},
+	];
+}
 
 describe("interactive startup routing", () => {
 	test.each(["interactive", "print", "json", "rpc"] as const)(
@@ -137,6 +177,128 @@ describe("interactive startup routing", () => {
 		expect(shouldEnsureInteractiveDaemonForStartup(true, undefined)).toBe(true);
 		expect(shouldEnsureInteractiveDaemonForStartup(true, "worker")).toBe(false);
 		expect(shouldEnsureInteractiveDaemonForStartup(false, undefined)).toBe(false);
+	});
+});
+
+describe("interactive session path safety", () => {
+	test("resolves a safe relative resume and fork selector before opening it", async () => {
+		const root = mkdtempSync(join(tmpdir(), "millwright-interactive-relative-path-"));
+		try {
+			const matrix = createUnsafeStatePathMatrix(root);
+			const relativeSelector = matrix.find(({ name }) => name === "relative")!.value;
+			const source = join(root, relativeSelector);
+			mkdirSync(join(root, "relative"), { recursive: true });
+			const sentinel = JSON.stringify({
+				type: "session",
+				id: "relative",
+				timestamp: new Date(0).toISOString(),
+				cwd: root,
+			});
+			writeFileSync(source, `${sentinel}\n`);
+
+			const resumed = await createSessionManager(
+				parseArgs(["--resume", relativeSelector]),
+				root,
+				join(root, "resume-sessions"),
+			);
+			expect(resumed.getSessionFile()).toBe(source);
+
+			const forked = await createSessionManager(
+				parseArgs(["--fork", relativeSelector]),
+				root,
+				join(root, "fork-sessions"),
+			);
+			expect(dirname(forked.getSessionFile()!)).toBe(join(root, "fork-sessions"));
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test("rejects every unsafe resolved resume and fork target before session access", async () => {
+		const root = mkdtempSync(join(tmpdir(), "millwright-interactive-unsafe-path-"));
+		try {
+			const matrix = createUnsafeStatePathMatrix(root).filter(({ name }) => name !== "relative");
+			for (const flag of ["--resume", "--fork"] as const) {
+				for (const { name, value } of matrix) {
+					await expect(
+						createSessionManager(parseArgs([flag, value]), root, join(root, "safe-sessions")),
+						`${flag} ${name}`,
+					).rejects.toThrow(/legacy|unsafe|resolve/i);
+					expect(readFileSync(join(root, ".prime", "sentinel.txt"), "utf8")).toBe("prime-sentinel");
+					expect(readFileSync(join(root, ".millrace-cli", "sentinel.txt"), "utf8")).toBe("millrace-cli-sentinel");
+				}
+			}
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test("validates ordinary CLI --session-dir before session discovery or access", async () => {
+		const root = mkdtempSync(join(tmpdir(), "millwright-main-session-dir-"));
+		const envNames = [
+			"HOME",
+			"MILLWRIGHT_CODING_AGENT_DIR",
+			"MILLWRIGHT_SESSION_DIR",
+			"MILLWRIGHT_CODING_AGENT_SESSION_DIR",
+			"MILLWRIGHT_OFFLINE",
+			"MILLWRIGHT_SKIP_VERSION_CHECK",
+		] as const;
+		const previous = new Map(envNames.map((name) => [name, process.env[name]]));
+		const runMainUntilListExit = async (sessionDir: string): Promise<void> => {
+			const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+				throw new Error(`main test exit ${code ?? ""}`);
+			}) as never);
+			try {
+				await expect(
+					main([
+						"--mode",
+						"text",
+						"--offline",
+						"--no-session",
+						"--no-tools",
+						"--no-extensions",
+						"--no-skills",
+						"--list-models",
+						"--session-dir",
+						sessionDir,
+					]),
+				).rejects.toThrow("main test exit");
+			} finally {
+				exitSpy.mockRestore();
+			}
+		};
+		try {
+			for (const name of envNames) delete process.env[name];
+			process.env.HOME = root;
+			process.env.MILLWRIGHT_CODING_AGENT_DIR = join(root, "agent");
+			const matrix = createUnsafeStatePathMatrix(root);
+			await runMainUntilListExit(join(root, "safe-session-dir", "nested"));
+			await runMainUntilListExit("~/tilde-session-dir");
+			for (const { name, value } of matrix) {
+				await expect(
+					main([
+						"--mode",
+						"text",
+						"--offline",
+						"--no-session",
+						"--no-tools",
+						"--no-extensions",
+						"--no-skills",
+						"--session-dir",
+						value,
+					]),
+					`${name} --session-dir`,
+				).rejects.toThrow(/absolute|legacy|unsafe|resolve/i);
+				expect(readFileSync(join(root, ".prime", "sentinel.txt"), "utf8")).toBe("prime-sentinel");
+				expect(readFileSync(join(root, ".millrace-cli", "sentinel.txt"), "utf8")).toBe("millrace-cli-sentinel");
+			}
+		} finally {
+			for (const [name, value] of previous) {
+				if (value === undefined) delete process.env[name];
+				else process.env[name] = value;
+			}
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
 

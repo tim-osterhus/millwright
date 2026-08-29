@@ -11,6 +11,7 @@ import {
 	getCronJobsPath,
 	getDaemonLogPath,
 	getDaemonUpdateRestartManifestPath,
+	resolveSafeStateOverride,
 	VERSION,
 } from "../../config.js";
 import {
@@ -441,6 +442,58 @@ function isDaemonWorkerDescriptor(value: unknown, socketPath: string): value is 
 	);
 }
 
+function descriptorJournalPath(descriptorDir: string, workerId: string, suffix: "recovery" | "orphans"): string {
+	if (!workerId || workerId.includes("/") || workerId.includes("\\") || workerId === "." || workerId === "..") {
+		throw new Error(`Invalid persisted worker id: ${workerId}`);
+	}
+	return join(descriptorDir, `${workerId}.${suffix}.jsonl`);
+}
+
+function validatePersistedWorkerDescriptor(
+	descriptor: DaemonWorkerDescriptor,
+	descriptorDir: string,
+): DaemonWorkerDescriptor {
+	if (descriptor.sessionFile !== undefined && typeof descriptor.sessionFile !== "string") {
+		throw new Error(`Persisted worker ${descriptor.workerId} has an invalid sessionFile`);
+	}
+	const createCommand = descriptor.createCommand;
+	if (createCommand.sessionPath !== undefined && typeof createCommand.sessionPath !== "string") {
+		throw new Error(`Persisted worker ${descriptor.workerId} has an invalid createCommand.sessionPath`);
+	}
+	if (
+		createCommand.config !== undefined &&
+		(typeof createCommand.config !== "object" || createCommand.config === null)
+	) {
+		throw new Error(`Persisted worker ${descriptor.workerId} has an invalid createCommand.config`);
+	}
+	const config = validateSessionRuntimeConfig(
+		createCommand.config,
+		`persisted worker ${descriptor.workerId}.createCommand.config`,
+	);
+	const sessionPath =
+		createCommand.sessionPath !== undefined && looksLikeSessionPath(createCommand.sessionPath)
+			? validateSessionStatePath(
+					createCommand.sessionPath,
+					`persisted worker ${descriptor.workerId}.createCommand.sessionPath`,
+				)
+			: createCommand.sessionPath;
+	const sessionFile =
+		descriptor.sessionFile === undefined
+			? undefined
+			: validateSessionStatePath(descriptor.sessionFile, `persisted worker ${descriptor.workerId}.sessionFile`);
+	return {
+		...descriptor,
+		...(sessionFile !== undefined ? { sessionFile } : {}),
+		recoveryJournalPath: descriptorJournalPath(descriptorDir, descriptor.workerId, "recovery"),
+		orphanProcessJournalPath: descriptorJournalPath(descriptorDir, descriptor.workerId, "orphans"),
+		createCommand: {
+			...createCommand,
+			...(config !== undefined ? { config } : {}),
+			...(sessionPath !== undefined ? { sessionPath } : {}),
+		},
+	};
+}
+
 function sessionSummariesFromResponse(response: DaemonResponse): SessionSummary[] {
 	if (!response.success || !response.data || typeof response.data !== "object" || !("sessions" in response.data)) {
 		throw new Error("Session worker returned an invalid list response");
@@ -520,6 +573,80 @@ function workerSocketPath(supervisorSocketPath: string, workerId: string): strin
 
 function looksLikeSessionPath(selector: string): boolean {
 	return isAbsolute(selector) || selector.endsWith(".jsonl") || selector.includes("/") || selector.includes("\\");
+}
+
+function validateSessionStatePath(value: string, fieldName: string): string {
+	return resolveSafeStateOverride(resolve(value), fieldName);
+}
+
+function validateSessionStateRoot(value: string, fieldName: string): string {
+	return resolveSafeStateOverride(value, fieldName);
+}
+
+function validateSessionRuntimeConfig(
+	config: AgentSessionRuntimeConfig | undefined,
+	fieldPrefix: string,
+): AgentSessionRuntimeConfig | undefined {
+	if (config === undefined) return undefined;
+	const validated: AgentSessionRuntimeConfig = { ...config };
+	if (config.agentDir !== undefined) {
+		validated.agentDir = validateSessionStateRoot(config.agentDir, `${fieldPrefix}.agentDir`);
+	}
+	if (config.sessionDir !== undefined) {
+		validated.sessionDir = validateSessionStateRoot(config.sessionDir, `${fieldPrefix}.sessionDir`);
+	}
+	return validated;
+}
+
+function validateDaemonCommandPaths(command: DaemonCommand): DaemonCommand {
+	switch (command.type) {
+		case "list":
+			return command.sessionDir === undefined
+				? command
+				: { ...command, sessionDir: validateSessionStateRoot(command.sessionDir, "daemon list.sessionDir") };
+		case "list_saved_sessions":
+			return "sessionDir" in command && command.sessionDir !== undefined
+				? {
+						...command,
+						sessionDir: validateSessionStateRoot(command.sessionDir, "daemon list_saved_sessions.sessionDir"),
+					}
+				: command;
+		case "create": {
+			const config = validateSessionRuntimeConfig(command.config, "daemon create.config");
+			const sessionPath =
+				command.sessionPath !== undefined && looksLikeSessionPath(command.sessionPath)
+					? validateSessionStatePath(command.sessionPath, "daemon create.sessionPath")
+					: command.sessionPath;
+			return {
+				...command,
+				...(config !== undefined ? { config } : {}),
+				...(sessionPath !== undefined ? { sessionPath } : {}),
+			};
+		}
+		case "switch_session":
+			return looksLikeSessionPath(command.sessionPath)
+				? {
+						...command,
+						sessionPath: validateSessionStatePath(command.sessionPath, "daemon switch_session.sessionPath"),
+					}
+				: command;
+		case "rename_saved_session":
+			return looksLikeSessionPath(command.sessionPath)
+				? {
+						...command,
+						sessionPath: validateSessionStatePath(command.sessionPath, "daemon rename_saved_session.sessionPath"),
+					}
+				: command;
+		case "delete_saved_session":
+			return looksLikeSessionPath(command.sessionPath)
+				? {
+						...command,
+						sessionPath: validateSessionStatePath(command.sessionPath, "daemon delete_saved_session.sessionPath"),
+					}
+				: command;
+		default:
+			return command;
+	}
 }
 
 function isFinalizedTranscriptEvent(eventType: string | undefined): boolean {
@@ -630,9 +757,13 @@ export class DaemonSupervisor {
 		if (!agentDir) {
 			throw new Error("Daemon supervisor config is missing agentDir");
 		}
+		const validatedDefaultSessionConfig = validateSessionRuntimeConfig(
+			options.defaultSessionConfig,
+			"daemon supervisor defaultSessionConfig",
+		)!;
 		this.descriptorDir = options.descriptorDir ?? defaultWorkerDescriptorDir(agentDir, socketPath);
 		this.supervisorConfigPath = join(this.descriptorDir, SUPERVISOR_CONFIG_FILE_NAME);
-		this.defaultSessionConfig = this.loadPersistedSupervisorConfig() ?? options.defaultSessionConfig;
+		this.defaultSessionConfig = this.loadPersistedSupervisorConfig() ?? validatedDefaultSessionConfig;
 		this.snapshotCacheRoot = join(this.descriptorDir, "snapshot-cache", this.generation);
 		this.catalog = new DaemonCatalogClient((message) => this.log(message));
 		this.settingsManager = SettingsManager.create(process.cwd(), this.defaultSessionConfig.agentDir ?? agentDir);
@@ -928,18 +1059,17 @@ export class DaemonSupervisor {
 				if (!isDaemonWorkerDescriptor(descriptor, this.socketPath)) {
 					continue;
 				}
-				descriptor.lifecycle = "recovering";
-				descriptor.recoveryJournalPath ??= join(this.descriptorDir, `${descriptor.workerId}.recovery.jsonl`);
-				descriptor.orphanProcessJournalPath ??= join(this.descriptorDir, `${descriptor.workerId}.orphans.jsonl`);
-				this.workers.set(descriptor.workerId, {
-					descriptor,
+				const validatedDescriptor = validatePersistedWorkerDescriptor(descriptor, this.descriptorDir);
+				validatedDescriptor.lifecycle = "recovering";
+				this.workers.set(validatedDescriptor.workerId, {
+					descriptor: validatedDescriptor,
 					descriptorPath: path,
 					summaries: new Map(),
 					snapshotCache: new Map(),
 					transcriptCaches: new Map(),
 					snapshotGenerations: new Map(),
 					snapshotLoads: new Map(),
-					intentionalStop: descriptor.stopRequestedAt !== undefined,
+					intentionalStop: validatedDescriptor.stopRequestedAt !== undefined,
 					stopRevision: 0,
 				});
 			} catch (error) {
@@ -962,7 +1092,7 @@ export class DaemonSupervisor {
 			) {
 				return undefined;
 			}
-			return parsed.defaultSessionConfig;
+			return validateSessionRuntimeConfig(parsed.defaultSessionConfig, "persisted supervisor defaultSessionConfig")!;
 		} catch {
 			return undefined;
 		}
@@ -1382,6 +1512,7 @@ export class DaemonSupervisor {
 		command: DaemonCommand,
 		cancellationAdmission?: SupervisorPromptAdmission,
 	): Promise<DaemonResponse | undefined> {
+		command = validateDaemonCommandPaths(command);
 		switch (command.type) {
 			case "cancel_prompt_admission": {
 				const admission =

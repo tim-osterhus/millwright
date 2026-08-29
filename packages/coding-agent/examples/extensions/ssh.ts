@@ -5,8 +5,8 @@
  * When --ssh is provided, edit and bash run on the remote.
  *
  * Usage:
- *   pi -e ./ssh.ts --ssh user@host
- *   pi -e ./ssh.ts --ssh user@host:/remote/path
+ *   millwright -e ./ssh.ts --ssh user@host
+ *   millwright -e ./ssh.ts --ssh user@host:/remote/path
  *
  * Requirements:
  *   - SSH key-based auth (no password prompts)

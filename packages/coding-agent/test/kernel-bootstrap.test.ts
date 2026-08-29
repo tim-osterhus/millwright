@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +15,34 @@ import {
 let tempDir = "";
 let originalEnv: NodeJS.ProcessEnv;
 let runtimeIdentity = "";
+
+type UnsafeStatePathCase = { name: string; value: string };
+
+function createUnsafeStatePathMatrix(root: string): UnsafeStatePathCase[] {
+	const primeRoot = join(root, ".prime");
+	const millraceCliRoot = join(root, ".millrace-cli");
+	const safeRoot = join(root, "safe");
+	mkdirSync(primeRoot, { recursive: true });
+	mkdirSync(millraceCliRoot, { recursive: true });
+	mkdirSync(safeRoot, { recursive: true });
+	writeFileSync(join(primeRoot, "sentinel.txt"), "prime-sentinel");
+	writeFileSync(join(millraceCliRoot, "sentinel.txt"), "millrace-cli-sentinel");
+	symlinkSync(primeRoot, join(safeRoot, "prime-link"), "dir");
+	symlinkSync(millraceCliRoot, join(safeRoot, "millrace-cli-link"), "dir");
+	symlinkSync(join(primeRoot, "missing-target"), join(safeRoot, "dangling-prime-link"), "dir");
+	symlinkSync(join(millraceCliRoot, "missing-target"), join(safeRoot, "dangling-millrace-cli-link"), "dir");
+	return [
+		{ name: "relative", value: join("relative", "state") },
+		{ name: "exact .prime", value: primeRoot },
+		{ name: ".prime descendant", value: join(primeRoot, "descendant") },
+		{ name: "exact .millrace-cli", value: millraceCliRoot },
+		{ name: ".millrace-cli descendant", value: join(millraceCliRoot, "descendant") },
+		{ name: "existing symlink to .prime", value: join(safeRoot, "prime-link", "descendant") },
+		{ name: "existing symlink to .millrace-cli", value: join(safeRoot, "millrace-cli-link", "descendant") },
+		{ name: "dangling symlink to .prime", value: join(safeRoot, "dangling-prime-link", "descendant") },
+		{ name: "dangling symlink to .millrace-cli", value: join(safeRoot, "dangling-millrace-cli-link", "descendant") },
+	];
+}
 
 function pyprojectHash(pyprojectPath: string): string {
 	return `sha256:${createHash("sha256").update(readFileSync(pyprojectPath)).digest("hex")}`;
@@ -172,6 +200,36 @@ describe("kernel bootstrap", () => {
 		process.env.MILLWRIGHT_KERNEL_VENV = venv;
 
 		expect(getKernelVenvDir()).toBe(venv);
+	});
+
+	it("rejects the complete unsafe MILLWRIGHT_KERNEL_VENV matrix before access", () => {
+		const matrix = createUnsafeStatePathMatrix(tempDir);
+		for (const { name, value } of matrix) {
+			process.env.MILLWRIGHT_KERNEL_VENV = value;
+			expect(() => getKernelVenvDir(), name).toThrow(/absolute|legacy|unsafe|resolve/i);
+			expect(readFileSync(join(tempDir, ".prime", "sentinel.txt"), "utf8")).toBe("prime-sentinel");
+			expect(readFileSync(join(tempDir, ".millrace-cli", "sentinel.txt"), "utf8")).toBe("millrace-cli-sentinel");
+		}
+	});
+
+	it("rejects the complete unsafe XDG_DATA_HOME matrix before fallback creation", async () => {
+		const blocker = join(tempDir, "agent-blocker");
+		writeFileSync(blocker, "not a directory");
+		const matrix = createUnsafeStatePathMatrix(tempDir);
+		for (const { name, value } of matrix) {
+			delete process.env.MILLWRIGHT_KERNEL_VENV;
+			process.env.MILLWRIGHT_CODING_AGENT_DIR = blocker;
+			process.env.XDG_DATA_HOME = value;
+			process.env.PATH = "";
+			process.env.MILLWRIGHT_INSTALL_UV = "0";
+
+			await expect(ensureKernelPython({ onProgress: () => {} }), name).rejects.toThrow(
+				/absolute|legacy|unsafe|resolve/i,
+			);
+			expect(readFileSync(blocker, "utf8")).toBe("not a directory");
+			expect(readFileSync(join(tempDir, ".prime", "sentinel.txt"), "utf8")).toBe("prime-sentinel");
+			expect(readFileSync(join(tempDir, ".millrace-cli", "sentinel.txt"), "utf8")).toBe("millrace-cli-sentinel");
+		}
 	});
 
 	it("bootstraps a missing venv with uv, ipykernel, prime-agent-runtime, and default extra packages", async () => {

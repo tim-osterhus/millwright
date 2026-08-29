@@ -1,9 +1,8 @@
 import type { ServiceTier, Transport } from "@earendil-works/pi-ai";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { homedir } from "os";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
-import { getAgentDir, getWorkspaceStateDir } from "../config.js";
+import { expandTildePath, getAgentDir, getWorkspaceStateDir, resolveSafeStateOverride } from "../config.js";
 
 const RECENT_MODELS_LIMIT = 20;
 export const DEFAULT_IDLE_EVICTION_MINUTES = 90;
@@ -669,13 +668,7 @@ export class SettingsManager {
 		if (!sessionDir) {
 			return sessionDir;
 		}
-		if (sessionDir === "~") {
-			return homedir();
-		}
-		if (sessionDir.startsWith("~/")) {
-			return join(homedir(), sessionDir.slice(2));
-		}
-		return sessionDir;
+		return resolveSafeStateOverride(expandTildePath(sessionDir), "settings sessionDir");
 	}
 
 	getDefaultProvider(): string | undefined {

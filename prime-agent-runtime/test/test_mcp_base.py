@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import tempfile
 import time
@@ -286,6 +287,42 @@ class McpIntegrationTest(unittest.TestCase):
             url, headers = _run(_Integration()._resolve_config())
             self.assertEqual(url, _Integration.url)
             self.assertEqual(headers, {})
+
+
+class AgentDirSafetyTest(unittest.TestCase):
+    def test_coding_agent_dir_rejects_complete_legacy_state_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            prime_root = root / ".prime"
+            millrace_cli_root = root / ".millrace-cli"
+            safe = root / "safe"
+            prime_root.mkdir()
+            millrace_cli_root.mkdir()
+            safe.mkdir()
+            (safe / "prime-link").symlink_to(prime_root, target_is_directory=True)
+            (safe / "millrace-cli-link").symlink_to(millrace_cli_root, target_is_directory=True)
+            (safe / "dangling-prime-link").symlink_to(prime_root / "missing", target_is_directory=True)
+            (safe / "dangling-millrace-cli-link").symlink_to(millrace_cli_root / "missing", target_is_directory=True)
+            unsafe_values = (
+                "~/.millwright",
+                "relative/state",
+                str(prime_root),
+                str(prime_root / "child"),
+                str(millrace_cli_root),
+                str(millrace_cli_root / "child"),
+                str(safe / "prime-link" / "child"),
+                str(safe / "millrace-cli-link" / "child"),
+                str(safe / "dangling-prime-link" / "child"),
+                str(safe / "dangling-millrace-cli-link" / "child"),
+            )
+            for value in unsafe_values:
+                with self.subTest(value=value), mock.patch.dict(
+                    os.environ,
+                    {"MILLWRIGHT_CODING_AGENT_DIR": value},
+                    clear=False,
+                ):
+                    with self.assertRaisesRegex(ValueError, "absolute|legacy|unsafe|resolve"):
+                        mcp_base._agent_dir()
 
 
 if __name__ == "__main__":

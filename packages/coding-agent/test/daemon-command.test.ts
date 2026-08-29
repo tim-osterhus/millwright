@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const daemonClientMock = vi.hoisted(() => {
@@ -128,6 +131,34 @@ vi.mock("node:child_process", async (importOriginal) => {
 
 import { handleDaemonCommand } from "../src/cli/daemon-command.js";
 
+type UnsafeStatePathCase = { name: string; value: string };
+
+function createUnsafeStatePathMatrix(root: string): UnsafeStatePathCase[] {
+	const primeRoot = join(root, ".prime");
+	const millraceCliRoot = join(root, ".millrace-cli");
+	const safeRoot = join(root, "safe");
+	mkdirSync(primeRoot, { recursive: true });
+	mkdirSync(millraceCliRoot, { recursive: true });
+	mkdirSync(safeRoot, { recursive: true });
+	writeFileSync(join(primeRoot, "sentinel.txt"), "prime-sentinel");
+	writeFileSync(join(millraceCliRoot, "sentinel.txt"), "millrace-cli-sentinel");
+	symlinkSync(primeRoot, join(safeRoot, "prime-link"), "dir");
+	symlinkSync(millraceCliRoot, join(safeRoot, "millrace-cli-link"), "dir");
+	symlinkSync(join(primeRoot, "missing-target"), join(safeRoot, "dangling-prime-link"), "dir");
+	symlinkSync(join(millraceCliRoot, "missing-target"), join(safeRoot, "dangling-millrace-cli-link"), "dir");
+	return [
+		{ name: "relative", value: join("relative", "state") },
+		{ name: "exact .prime", value: primeRoot },
+		{ name: ".prime descendant", value: join(primeRoot, "descendant") },
+		{ name: "exact .millrace-cli", value: millraceCliRoot },
+		{ name: ".millrace-cli descendant", value: join(millraceCliRoot, "descendant") },
+		{ name: "existing symlink to .prime", value: join(safeRoot, "prime-link", "descendant") },
+		{ name: "existing symlink to .millrace-cli", value: join(safeRoot, "millrace-cli-link", "descendant") },
+		{ name: "dangling symlink to .prime", value: join(safeRoot, "dangling-prime-link", "descendant") },
+		{ name: "dangling symlink to .millrace-cli", value: join(safeRoot, "dangling-millrace-cli-link", "descendant") },
+	];
+}
+
 describe("daemon command", () => {
 	let consoleErrorMessages: unknown[];
 
@@ -151,6 +182,36 @@ describe("daemon command", () => {
 	afterEach(() => {
 		process.exitCode = undefined;
 		vi.restoreAllMocks();
+	});
+
+	it("rejects the complete unsafe --session-dir matrix before daemon access", async () => {
+		const root = mkdtempSync(join(tmpdir(), "millwright-daemon-command-path-"));
+		try {
+			const matrix = createUnsafeStatePathMatrix(root);
+			for (const { name, value } of matrix) {
+				daemonClientMock.instances.length = 0;
+				process.exitCode = undefined;
+				await expect(handleDaemonCommand(["daemon", "create", "--session-dir", value, "--json"])).resolves.toBe(
+					true,
+				);
+				expect(daemonClientMock.instances).toHaveLength(1);
+				expect(daemonClientMock.instances[0]?.requests, name).toHaveLength(0);
+				expect(process.exitCode, name).toBe(1);
+				expect(readFileSync(join(root, ".prime", "sentinel.txt"), "utf8")).toBe("prime-sentinel");
+				expect(readFileSync(join(root, ".millrace-cli", "sentinel.txt"), "utf8")).toBe("millrace-cli-sentinel");
+			}
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("expands a safe tilde --session-dir before sending create", async () => {
+		await expect(handleDaemonCommand(["daemon", "create", "--session-dir", "~", "--json"])).resolves.toBe(true);
+		expect(daemonClientMock.instances).toHaveLength(1);
+		expect(daemonClientMock.instances[0]?.requests[0]).toMatchObject({
+			type: "create",
+			config: { sessionDir: homedir() },
+		});
 	});
 
 	it("cleans prompt listeners when the prompt request fails", async () => {

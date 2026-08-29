@@ -344,9 +344,9 @@ export function getKernelVenvDir(): string {
 
 function getXdgKernelVenvDir(): string {
 	const dataHome = process.env.XDG_DATA_HOME
-		? path.resolve(expandHome(process.env.XDG_DATA_HOME))
+		? resolveSafeStateOverride(expandHome(process.env.XDG_DATA_HOME), "XDG_DATA_HOME")
 		: path.join(os.homedir(), ".local", "share");
-	return path.join(dataHome, "millwright", "kernel-venv");
+	return resolveSafeStateOverride(path.join(dataHome, "millwright", "kernel-venv"), "XDG_DATA_HOME kernel state root");
 }
 
 async function resolveWritableKernelVenvDir(): Promise<string> {

@@ -117,6 +117,9 @@ test("verifier reports stable closure, provenance, licenses, and dependency inve
 		assert.ok(report.dependencies["@agentclientprotocol/sdk"]);
 		assert.equal(report.unpackedFiles.some(({ path }) => path.split("/").includes("__pycache__") || /\.py[co]$/u.test(path)), false);
 		assert.equal(report.installSmoke.status, "passed");
+		assert.equal(report.publicIdentity.unclassified.length, 0);
+		assert.ok(report.publicIdentity.hitCount > 0);
+		assert.ok(report.publicIdentity.files.includes("README.md"));
 	} finally {
 		rmSync(output, { recursive: true, force: true });
 	}
@@ -148,6 +151,50 @@ test("verifier rejects missing closure files, metadata, notices, versions, and c
 			["inconsistent versions", (values) => mutateJson(values, "node_modules/@earendil-works/pi-ai/package.json", (value) => { value.version = "9.9.9"; })],
 			["dependency conflict", (values) => mutateJson(values, "package.json", (value) => { value.optionalDependencies = { ...(value.optionalDependencies || {}), chalk: "^5.6.2" }; })],
 			["executable mapping", (values) => mutateJson(values, "package.json", (value) => { value.bin.millwright = "dist/missing.js"; })],
+			["unclassified public identity", (values) => {
+				const record = values.get("package/README.md");
+				assert.ok(record);
+				record.data = Buffer.from(`${record.data.toString("utf8")}\nPrime Agent is the current command.\n`);
+			}],
+			["unclassified generated dist identity", (values) => {
+				const record = values.get("package/dist/index.js");
+				assert.ok(record);
+				record.data = Buffer.from(`${record.data.toString("utf8")}\nPrime Agent is the current command.\n`);
+			}],
+			["reintroduced model-registry identity", (values) => {
+				const record = values.get("package/dist/core/model-registry.js");
+				assert.ok(record);
+				const text = record.data.toString("utf8");
+				record.data = Buffer.from(
+					text
+						.replace("Millwright's own package version", "Prime Agent's own package version")
+						.replace("for Millwright at all", "for Prime Agent at all"),
+				);
+			}],
+			["unclassified branded pi identity", (values) => {
+				const record = values.get("package/README.md");
+				assert.ok(record);
+				record.data = Buffer.from(`${record.data.toString("utf8")}\nRun the pi command.\n`);
+			}],
+			["unclassified pi command forms", (values) => {
+				const record = values.get("package/README.md");
+				assert.ok(record);
+				record.data = Buffer.from(
+					`${record.data.toString("utf8")}\ncommand: "pi"\npi -e ./extension\npi -p "prompt"\npi --flag\n`,
+				);
+			}],
+			["unclassified pi prose forms", (values) => {
+				const record = values.get("package/README.md");
+				assert.ok(record);
+				record.data = Buffer.from(
+					`${record.data.toString("utf8")}\nstart pi\nuse pi\ninvoke pi\ninside pi\nexit pi\nPi's default spinner\nPi’s default spinner\n`,
+				);
+			}],
+			["unclassified pi UI label", (values) => {
+				const record = values.get("package/README.md");
+				assert.ok(record);
+				record.data = Buffer.from(`${record.data.toString("utf8")}\nnotify("Pi", "Ready")\n`);
+			}],
 		];
 		for (const [label, mutate] of cases) {
 			const caseDir = mkdtempSync(join(output, `${label.replaceAll(" ", "-")}-`));

@@ -223,6 +223,143 @@ function assertSortedKeys(value, location) {
 	for (const [key, child] of Object.entries(value)) assertSortedKeys(child, `${location}.${key}`);
 }
 
+
+const PUBLIC_IDENTITY_TEXT_EXTENSIONS = /\.(?:cjs|css|d\.ts|html|js|json|md|mjs|py|pyi|sh|toml|ts|tsx|txt|yaml|yml)$/iu;
+
+function isCurrentProductPi(line) {
+	return /\bcommand\s*:\s*["']pi["']|\bpi\s+-[A-Za-z]\b|\bpi\s+--[A-Za-z][A-Za-z0-9-]*\b|\b(?:start|use|invoke|inside|exit)\s+(?:the\s+)?pi\b|\bpi(?:['’]s|s')\s+(?:default|current|active|primary|main)\b|\b(?:notify|setTitle|setLabel)\s*\(\s*["']Pi["']/iu.test(
+		line,
+	);
+}
+
+function hasBrandedPi(line) {
+	return (
+		isCurrentProductPi(line) ||
+		/@earendil-works\/pi-|\bpi-(?:mono|skills|package|agent|coding-agent|ai|tui)\b|(?:^|[\s`'"(])(?:~\/)?\.pi(?:[\s`'"/.)]|$)|["']pi["']\s*[:=]|\bpi\s+(?:CLI|command|package|manifest|API|product|agent|is\b)|\bpi\.(?:on|ui|register|send|get|set|exec|append|events|prompts|skills|themes)[A-Za-z0-9_]*\b|\b(?:use|run|invoke)\s+(?:the\s+)?pi\b/iu.test(
+			line,
+		)
+	);
+}
+
+function identityTokens(line) {
+	const tokens = new Set();
+	for (const match of line.matchAll(/Prime Agent|prime-agent(?:-[A-Za-z0-9._-]+)?|\bPrime\b|\bprime\b|\bPI_[A-Z][A-Z0-9_]*\b/gu)) tokens.add(match[0]);
+	if (hasBrandedPi(line)) {
+		for (const match of line.matchAll(/@earendil-works\/pi-[A-Za-z0-9._-]+|\b(?:Pi|pi)\b|(?:^|\s)(?:~\/)?\.pi(?:[/A-Za-z0-9._-]*)/gu)) {
+			const token = match[0].trim();
+			if (token) tokens.add(token);
+		}
+	}
+	return [...tokens];
+}
+
+function isGeneratedVendorContext(path, line) {
+	return path.startsWith("dist/bundle/") || path.startsWith("dist/core/export-html/vendor/") || /sourceMappingURL=/.test(line);
+}
+
+function classifyIdentity(path, line, token) {
+	const lower = `${path}\n${line}`.toLowerCase();
+	const generatedVendor = isGeneratedVendorContext(path, line);
+	if (path.startsWith("skills/prime-intellect/") || (generatedVendor && path.startsWith("dist/skills/prime-intellect/"))) {
+		return { classification: "provider", reason: "Prime Intellect public skill identity" };
+	}
+	if (/prime agent traces|prime agent trace|prime-agent-traces|agent-traces|x-prime-team-id/.test(lower) || (token === "prime" && path.includes("telemetry"))) {
+		return { classification: "provider", reason: "Prime Agent Traces provider identity" };
+	}
+	if (/\.prime|\.millrace-cli/.test(lower)) {
+		return { classification: "private-internal", reason: "retained legacy-root rejection marker" };
+	}
+	if (/prime-agent-runtime|prime-agent-skill-|application\/vnd\.prime-agent|ai\.primeintellect\.prime-agent|prime-agent\.sh|prime-agent\.(?:refinement|daemon|worker_|update_)|daemon worker|daemon supervisor|currenttheme/.test(lower)) {
+		return { classification: "private-internal", reason: "retained runtime, skill, protocol, or source-launcher identifier" };
+	}
+	if (token === "Prime Agent" || token === "prime-agent") {
+		if (/upstream|provenance|attribution|fork|imported|lineage|license|notice|snapshot|derived|github.com\/primeintellect-ai\/prime-agent/.test(lower)) {
+			return { classification: "provenance", reason: "retained upstream Prime Agent provenance" };
+		}
+		return { classification: "unclassified", reason: "current product identity must use Millwright" };
+	}
+	if ((token === "Prime" || token === "prime") && /\b(?:current|default)\s+(?:application|command|product|agent|name)\b|\b(?:Pi|pi|Prime|prime)\s+is\s+(?:the\s+)?(?:current|default)\b/.test(lower)) {
+		return { classification: "unclassified", reason: "current product identity must use Millwright" };
+	}
+	if (/^prime_agent_traces_|\bprime_agent_traces_/.test(token.toLowerCase())) {
+		return { classification: "provider", reason: "Prime Agent Traces provider configuration" };
+	}
+	if (/^pi_(?:tui_write_log|timing)$/i.test(token)) {
+		return { classification: "private-internal", reason: "retained upstream TUI debugging variable" };
+	}
+	if (/^PI_[A-Z][A-Z0-9_]*$/.test(token) && (!generatedVendor || /\b(?:env(?:ironment)?|config(?:uration)?|state|setting|current|millwright)\b/.test(lower))) {
+		return { classification: "unclassified", reason: "current product identity must use Millwright" };
+	}
+	if (/prime-butterfly|assets\/brand|prime-logo|prime brand/.test(lower)) {
+		return { classification: "attribution", reason: "Prime Intellect brand asset attribution" };
+	}
+	if (/(?:^|\/)prime-(?:team-selector|onboarding-splash)|(?:^|\/)theme(?:\/|\.|$)/.test(lower)) {
+		return { classification: "private-internal", reason: "retained private package, manifest, callback, or API identifier" };
+	}
+	if (/@earendil-works\/pi-|\bpi-(?:mono|skills|package|agent|coding-agent|ai|tui)\b|\bpi\.(?:on|ui|register|send|get|set|exec|append|events|prompts|skills|themes)\b|\b(?:Pi|pi)\b/.test(token)) {
+		if (/upstream|provenance|attribution|fork|imported|lineage|license|notice|pi-mono|pi skills|snapshot/.test(lower)) {
+			return { classification: "provenance", reason: "retained upstream Pi lineage or attribution" };
+		}
+		if (
+			(token === "Pi" || token === "pi") &&
+			(isCurrentProductPi(line) ||
+				/\b(?:current|default)\s+(?:application|command|product|agent|name)\b|\b(?:Pi|pi|Prime|prime)\s+is\s+(?:the\s+)?(?:current|default)\b/.test(
+					lower,
+				))
+		) {
+			return { classification: "unclassified", reason: "current product identity must use Millwright" };
+		}
+		if (/@earendil-works\/pi-|\bpi-(?:mono|skills|package|agent|coding-agent|ai|tui)\b|\bpi\s+packages?\b|\bpi\s+manifest\b|\bpi\.(?:on|ui|register|send|get|set|exec|append|events|prompts|skills|themes)[A-Za-z0-9_]*\b|(?:^|[\s`'"(])(?:~\/)?\.pi(?:[\s`'"/.)]|$)|["']pi["']\s*[:=]/.test(lower)) {
+			return { classification: "private-internal", reason: "retained private package, manifest, callback, or API identifier" };
+		}
+		if (generatedVendor) {
+			return { classification: "generated/vendor", reason: "generated bundled or vendored application output" };
+		}
+		return { classification: "unclassified", reason: "current product identity must use Millwright" };
+	}
+	if (/prime inference|prime-inference|prime api|primeintellect\.ai|prime intellect|prime-intellect|prime cli|prime-rl|prime team|prime provider/.test(lower)) {
+		return { classification: "provider", reason: "Prime Inference or Prime Intellect provider/skill identity" };
+	}
+	if (/upstream|provenance|attribution|fork|imported|lineage|license|notice|snapshot|derived|github.com\/primeintellect-ai\/prime-agent/.test(lower)) {
+		return { classification: "provenance", reason: "retained upstream provenance or attribution" };
+	}
+	if (generatedVendor) {
+		return { classification: "generated/vendor", reason: "generated bundled or vendored application output" };
+	}
+	return { classification: "unclassified", reason: "not an allowed provider, provenance, attribution, generated/vendor, or private-internal identity" };
+}
+
+function scanPublicIdentity(files) {
+	const hits = [];
+	for (const [archivePath, data] of files) {
+		const path = archivePath.slice("package/".length);
+		if (!(path === "README.md" || path.startsWith("docs/") || path.startsWith("examples/") || path.startsWith("skills/") || path.startsWith("dist/"))) continue;
+		if (!PUBLIC_IDENTITY_TEXT_EXTENSIONS.test(path)) continue;
+		const text = data.toString("utf8");
+		for (const [index, line] of text.split(/\r?\n/u).entries()) {
+			for (const token of identityTokens(line)) {
+				const result = classifyIdentity(path, line, token);
+				hits.push({ path, line: index + 1, token, ...result });
+			}
+		}
+	}
+	return hits;
+}
+
+function verifyPublicIdentity(files) {
+	const hits = scanPublicIdentity(files);
+	const unclassified = hits.filter((hit) => hit.classification === "unclassified");
+	if (unclassified.length > 0) fail(`Unclassified public identity hits:\n${JSON.stringify(unclassified, null, 2)}`);
+	return {
+		schemaVersion: 1,
+		files: [...new Set(hits.map((hit) => hit.path))].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))),
+		hitCount: hits.length,
+		classificationCounts: Object.fromEntries([...new Set(hits.map((hit) => hit.classification))].sort().map((classification) => [classification, hits.filter((hit) => hit.classification === classification).length])),
+		hits,
+		unclassified,
+	};
+}
+
 function verifyPublicManifest(manifest, files) {
 	assertSortedKeys(manifest, "public package.json");
 	if (manifest.name !== PUBLIC_NAME) fail(`Unexpected public package name: ${manifest.name}`);
@@ -386,6 +523,7 @@ async function main() {
 	const manifest = readJsonBytes(requireFile(files, "package.json"), "package/package.json");
 	verifyPublicManifest(manifest, files);
 	verifyInternalPackages(files, manifest);
+	const publicIdentity = verifyPublicIdentity(files);
 	for (const required of ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "UPSTREAM.md", "UPSTREAM.json", "LICENSES/Prime-Agent-MIT.txt", "LICENSES/OpenTUI-MIT.txt", "PROVENANCE.json"]) requireFile(files, required);
 	if (!/Apache License/iu.test(requireFile(files, "LICENSE").toString("utf8"))) fail("Apache license text is missing");
 	if (!/MIT License/iu.test(requireFile(files, "LICENSES/Prime-Agent-MIT.txt").toString("utf8"))) fail("Upstream MIT license text is missing");
@@ -420,6 +558,7 @@ async function main() {
 	const bytes = archive.compressed;
 	const result = {
 		schemaVersion: 1,
+		publicIdentity,
 		package: {
 			name: manifest.name,
 			version: manifest.version,

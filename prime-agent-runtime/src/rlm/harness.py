@@ -21,6 +21,7 @@ HarnessScope = Literal["local", "global"]
 
 _DEFAULT_FILE_NAME = "harness_state.json"
 _DEFAULT_HARNESS_DIR_NAME = "harness"
+_LEGACY_STATE_SEGMENTS = frozenset({".prime", ".millrace-cli"})
 _KINDS: tuple[HarnessKind, ...] = ("prompt", "memory", "skill", "subagent")
 _state_cache: dict[tuple[Path, HarnessScope], "HarnessState"] = {}
 
@@ -35,17 +36,50 @@ def _slug(raw: str, fallback: str) -> str:
     return (normalized or fallback)[:80]
 
 
+def _path_entry_exists(path: Path) -> bool:
+    try:
+        os.lstat(path)
+        return True
+    except OSError:
+        return False
+
+
+def _resolve_safe_state_override(raw_path: str | Path, env_name: str, *, expand_user: bool = False) -> Path:
+    """Validate a state root without touching its owned file or creating parents."""
+    raw = str(raw_path).strip()
+    expanded = os.path.expanduser(raw) if expand_user else raw
+    candidate = Path(expanded)
+    if not candidate.is_absolute():
+        raise ValueError(f"{env_name} must be an absolute path")
+    candidate = Path(os.path.abspath(expanded))
+
+    existing_ancestor = candidate
+    unresolved_suffix: list[str] = []
+    while not _path_entry_exists(existing_ancestor):
+        parent = existing_ancestor.parent
+        if parent == existing_ancestor:
+            break
+        unresolved_suffix.insert(0, existing_ancestor.name)
+        existing_ancestor = parent
+
+    try:
+        canonical_ancestor = Path(os.path.realpath(existing_ancestor))
+        if not _path_entry_exists(canonical_ancestor):
+            raise OSError("canonical ancestor does not exist")
+    except OSError as exc:
+        raise ValueError(f"{env_name} cannot resolve its deepest existing ancestor safely") from exc
+
+    canonical_path = canonical_ancestor.joinpath(*unresolved_suffix)
+    if any(part in _LEGACY_STATE_SEGMENTS for part in canonical_path.parts):
+        raise ValueError(f"{env_name} cannot target a legacy or unsafe state root")
+    return candidate
+
+
 def _agent_dir() -> Path:
-    raw = os.environ.get("MILLWRIGHT_CODING_AGENT_DIR")
+    raw = _env_dir("MILLWRIGHT_CODING_AGENT_DIR")
     if raw is None:
         raw = str(Path.home() / ".millwright")
-    candidate = Path(raw.strip())
-    if not candidate.is_absolute():
-        raise ValueError("MILLWRIGHT_CODING_AGENT_DIR must be an absolute path")
-    canonical = candidate.resolve(strict=False)
-    if any(part in {".prime", ".millrace-cli"} for part in canonical.parts):
-        raise ValueError("MILLWRIGHT_CODING_AGENT_DIR cannot target a legacy or unsafe state root")
-    return candidate
+    return _resolve_safe_state_override(raw, "MILLWRIGHT_CODING_AGENT_DIR")
 
 
 def _resolve_global_flag(global_: bool = False, extra: dict[str, Any] | None = None) -> bool:
@@ -81,18 +115,28 @@ def _env_dir(name: str) -> str | None:
 
 def _state_file(state_dir: str | Path | None = None, *, global_: bool = False) -> Path:
     root: str | Path | None = state_dir
+    root_name = "state_dir"
     if root is None:
-        root = _env_dir("RLM_GLOBAL_HARNESS_STATE_DIR") if global_ else _env_dir("RLM_HARNESS_STATE_DIR")
+        if global_:
+            root = _env_dir("RLM_GLOBAL_HARNESS_STATE_DIR")
+            root_name = "RLM_GLOBAL_HARNESS_STATE_DIR"
+        else:
+            root = _env_dir("RLM_HARNESS_STATE_DIR")
+            root_name = "RLM_HARNESS_STATE_DIR"
     if root is None and not global_ and (session_dir := _env_dir("RLM_SESSION_DIR")):
-        root = Path(session_dir) / _DEFAULT_HARNESS_DIR_NAME
+        safe_session_dir = _resolve_safe_state_override(session_dir, "RLM_SESSION_DIR", expand_user=True)
+        root = safe_session_dir / _DEFAULT_HARNESS_DIR_NAME
+        root_name = "RLM_SESSION_DIR harness state root"
     if root is None and not global_:
         raise RuntimeError(
             "Local harness state requires RLM_HARNESS_STATE_DIR or RLM_SESSION_DIR. "
             "Use get_harness_state(global_=True) for global state."
         )
     if root:
-        return Path(root).expanduser().resolve() / _DEFAULT_FILE_NAME
-    return _agent_dir() / _DEFAULT_HARNESS_DIR_NAME / _DEFAULT_FILE_NAME
+        safe_root = _resolve_safe_state_override(root, root_name, expand_user=True).resolve(strict=False)
+        return safe_root / _DEFAULT_FILE_NAME
+    safe_agent_dir = _resolve_safe_state_override(_agent_dir(), "MILLWRIGHT_CODING_AGENT_DIR")
+    return safe_agent_dir / _DEFAULT_HARNESS_DIR_NAME / _DEFAULT_FILE_NAME
 
 
 @dataclass

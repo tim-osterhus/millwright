@@ -38,6 +38,7 @@ import {
 	expandTildePath,
 	getAgentDir,
 	getSessionDirEnvOverride,
+	resolveSafeStateOverride,
 	USE_PRIME_CLI_CONFIG_BY_DEFAULT,
 	VERSION,
 } from "./config.js";
@@ -455,6 +456,13 @@ function getResumeSelector(parsed: Pick<Args, "resume">): string | undefined {
 	return typeof parsed.resume === "string" ? parsed.resume : undefined;
 }
 
+function resolveInteractiveSessionSelector(selector: string, cwd: string, fieldName: string): string {
+	if (!looksLikeSessionPath(selector)) {
+		return selector;
+	}
+	return resolveSafeStateOverride(resolve(cwd, expandTildePath(selector)), fieldName);
+}
+
 export async function createSessionManager(
 	parsed: Args,
 	cwd: string,
@@ -467,7 +475,8 @@ export async function createSessionManager(
 	}
 
 	if (parsed.fork) {
-		const resolved = await resolveSessionPath(parsed.fork, cwd, sessionDir);
+		const forkSelector = resolveInteractiveSessionSelector(parsed.fork, cwd, "--fork");
+		const resolved = await resolveSessionPath(forkSelector, cwd, sessionDir);
 
 		switch (resolved.type) {
 			case "path":
@@ -479,7 +488,8 @@ export async function createSessionManager(
 
 	const resumeSelector = getResumeSelector(parsed);
 	if (resumeSelector) {
-		const resolved = await resolveSessionPath(resumeSelector, cwd, sessionDir);
+		const safeResumeSelector = resolveInteractiveSessionSelector(resumeSelector, cwd, "--resume");
+		const resolved = await resolveSessionPath(safeResumeSelector, cwd, sessionDir);
 
 		switch (resolved.type) {
 			case "path":
@@ -1169,7 +1179,9 @@ export async function main(args: string[], options?: MainOptions) {
 	// the target session cwd is known. The startup-cwd settings manager is used only for
 	// sessionDir lookup during session selection.
 	const sessionDir =
-		(parsed.sessionDir ? expandTildePath(parsed.sessionDir) : undefined) ??
+		(parsed.sessionDir !== undefined
+			? resolveSafeStateOverride(expandTildePath(parsed.sessionDir), "--session-dir")
+			: undefined) ??
 		getSessionDirEnvOverride() ??
 		startupSettingsManager.getSessionDir();
 	const daemonSocketPath = parsed.daemonSocket ?? defaultDaemonSocketPath();

@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { delimiter, join } from "path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -7,8 +7,10 @@ import {
 	ENV_LEGACY_SESSION_DIR,
 	ENV_PACKAGE_DIR,
 	ENV_SESSION_DIR,
+	getAgentDir,
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
+	getSessionDirEnvOverride,
 	getSessionsDir,
 	getUpdateInstruction,
 } from "../src/config.js";
@@ -17,9 +19,38 @@ import { getDefaultSessionDir } from "../src/core/session-manager.js";
 const execPathDescriptor = Object.getOwnPropertyDescriptor(process, "execPath");
 const originalPath = process.env.PATH;
 const originalPackageDir = process.env[ENV_PACKAGE_DIR];
+const originalAgentDir = process.env.MILLWRIGHT_CODING_AGENT_DIR;
 const originalSessionDir = process.env[ENV_SESSION_DIR];
 const originalLegacySessionDir = process.env[ENV_LEGACY_SESSION_DIR];
 let tempDir: string | undefined;
+
+type UnsafeStatePathCase = { name: string; value: string };
+
+function createUnsafeStatePathMatrix(root: string): UnsafeStatePathCase[] {
+	const primeRoot = join(root, ".prime");
+	const millraceCliRoot = join(root, ".millrace-cli");
+	const safeRoot = join(root, "safe");
+	mkdirSync(primeRoot, { recursive: true });
+	mkdirSync(millraceCliRoot, { recursive: true });
+	mkdirSync(safeRoot, { recursive: true });
+	writeFileSync(join(primeRoot, "sentinel.txt"), "prime-sentinel");
+	writeFileSync(join(millraceCliRoot, "sentinel.txt"), "millrace-cli-sentinel");
+	symlinkSync(primeRoot, join(safeRoot, "prime-link"), "dir");
+	symlinkSync(millraceCliRoot, join(safeRoot, "millrace-cli-link"), "dir");
+	symlinkSync(join(primeRoot, "missing-target"), join(safeRoot, "dangling-prime-link"), "dir");
+	symlinkSync(join(millraceCliRoot, "missing-target"), join(safeRoot, "dangling-millrace-cli-link"), "dir");
+	return [
+		{ name: "relative", value: join("relative", "state") },
+		{ name: "exact .prime", value: primeRoot },
+		{ name: ".prime descendant", value: join(primeRoot, "descendant") },
+		{ name: "exact .millrace-cli", value: millraceCliRoot },
+		{ name: ".millrace-cli descendant", value: join(millraceCliRoot, "descendant") },
+		{ name: "existing symlink to .prime", value: join(safeRoot, "prime-link", "descendant") },
+		{ name: "existing symlink to .millrace-cli", value: join(safeRoot, "millrace-cli-link", "descendant") },
+		{ name: "dangling symlink to .prime", value: join(safeRoot, "dangling-prime-link", "descendant") },
+		{ name: "dangling symlink to .millrace-cli", value: join(safeRoot, "dangling-millrace-cli-link", "descendant") },
+	];
+}
 
 function setExecPath(value: string): void {
 	Object.defineProperty(process, "execPath", {
@@ -41,6 +72,11 @@ afterEach(() => {
 		delete process.env[ENV_PACKAGE_DIR];
 	} else {
 		process.env[ENV_PACKAGE_DIR] = originalPackageDir;
+	}
+	if (originalAgentDir === undefined) {
+		delete process.env.MILLWRIGHT_CODING_AGENT_DIR;
+	} else {
+		process.env.MILLWRIGHT_CODING_AGENT_DIR = originalAgentDir;
 	}
 	if (originalSessionDir === undefined) {
 		delete process.env[ENV_SESSION_DIR];
@@ -437,25 +473,21 @@ describe("session paths", () => {
 		expect(() => getSessionsDir("/agent")).toThrow(/absolute/i);
 	});
 
-	test("rejects legacy roots, descendants, and symlink escapes", () => {
+	test("rejects the complete unsafe state-root matrix before legacy access", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "millwright-session-safety-"));
-		const legacyPrime = join(tempDir, ".prime");
-		const legacyMillraceCli = join(tempDir, ".millrace-cli");
-		const safeParent = join(tempDir, "safe");
-		mkdirSync(legacyPrime, { recursive: true });
-		mkdirSync(legacyMillraceCli, { recursive: true });
-		mkdirSync(safeParent, { recursive: true });
-		symlinkSync(legacyPrime, join(safeParent, "legacy-link"), "dir");
-
-		for (const unsafe of [
-			legacyPrime,
-			join(legacyPrime, "sessions"),
-			legacyMillraceCli,
-			join(legacyMillraceCli, "sessions"),
-			join(safeParent, "legacy-link", "sessions"),
-		]) {
-			process.env[ENV_SESSION_DIR] = unsafe;
-			expect(() => getSessionsDir("/agent")).toThrow(/legacy|unsafe/i);
+		const matrix = createUnsafeStatePathMatrix(tempDir);
+		for (const [envName, readRoot] of [
+			["MILLWRIGHT_CODING_AGENT_DIR", getAgentDir],
+			[ENV_SESSION_DIR, () => getSessionDirEnvOverride()],
+		] as const) {
+			for (const { name, value } of matrix) {
+				delete process.env.MILLWRIGHT_CODING_AGENT_DIR;
+				delete process.env[ENV_SESSION_DIR];
+				process.env[envName] = value;
+				expect(() => readRoot(), `${envName} ${name}`).toThrow(/absolute|legacy|unsafe|resolve/i);
+				expect(readFileSync(join(tempDir, ".prime", "sentinel.txt"), "utf8")).toBe("prime-sentinel");
+				expect(readFileSync(join(tempDir, ".millrace-cli", "sentinel.txt"), "utf8")).toBe("millrace-cli-sentinel");
+			}
 		}
 	});
 

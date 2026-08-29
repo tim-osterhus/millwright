@@ -1,8 +1,8 @@
-# Using Prime Agent
+# Using Millwright
 
 This page collects day-to-day usage details that do not fit on the quickstart page.
 
-Prime Agent is built around one model-facing tool: a persistent IPython kernel. The kernel retains Python state across turns and acts as a control environment for file operations, project commands, installed Python skills, MCP-backed skills, and recursive subagents. The TypeScript host remains responsible for provider calls, session state, tool execution, scheduling, and child-agent lifecycles.
+Millwright is built around one model-facing tool: a persistent IPython kernel. The kernel retains Python state across turns and acts as a control environment for file operations, project commands, installed Python skills, MCP-backed skills, and recursive subagents. The TypeScript host remains responsible for provider calls, session state, tool execution, scheduling, and child-agent lifecycles.
 
 ## Interactive Mode
 
@@ -60,7 +60,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/reload` | Reload keybindings, extensions, skills, prompts, and context files |
 | `/hotkeys` | Show all keyboard shortcuts |
 | `/changelog` | Display version history |
-| `/quit` | Quit Prime Agent |
+| `/quit` | Quit Millwright |
 
 ## Message Queue
 
@@ -74,19 +74,19 @@ You can submit messages while the agent is still working:
 - While browsing, **Enter** applies the edit as steering input and **Alt+Enter** applies it as a follow-up; submitting an empty edit deletes the item.
 - **Ctrl+Option+Up / Ctrl+Option+Down** move the selected item earlier or later within its queue.
 
-On Windows Terminal, Alt+Enter is fullscreen by default. Remap it as described in [Terminal setup](terminal-setup.md) if you want Prime Agent to receive the shortcut.
+On Windows Terminal, Alt+Enter is fullscreen by default. Remap it as described in [Terminal setup](terminal-setup.md) if you want Millwright to receive the shortcut.
 
 Configure delivery in [Settings](settings.md) with `steeringMode` and `followUpMode`.
 
 ## Sessions
 
-Sessions are saved automatically as flat JSONL files under `~/.prime/agent/sessions/`. Each session header records its working directory, which the session picker uses for project-scoped views.
+Sessions are saved automatically as flat JSONL files under `~/.millwright/sessions/`. Each session header records its working directory, which the session picker uses for project-scoped views.
 
 ```bash
-prime-agent -c                  # Continue most recent session
-prime-agent -r [path|id]        # Browse sessions or resume one directly
-prime-agent --no-session        # Ephemeral mode; do not save
-prime-agent --fork <path|id>    # Fork a session into a new session file
+millwright -c                  # Continue most recent session
+millwright -r [path|id]        # Browse sessions or resume one directly
+millwright --no-session        # Ephemeral mode; do not save
+millwright --fork <path|id>    # Fork a session into a new session file
 ```
 
 Useful session commands:
@@ -102,7 +102,7 @@ See [Sessions](sessions.md) and [Compaction](compaction.md) for details.
 
 ## Agents and Recursive Subagents
 
-Normal interactive sessions are persistent agents backed by isolated worker processes. Closing the TUI detaches the client; use `prime-agent agents`, `prime-agent list`, or `prime-agent attach <agent>` to find and reattach to running work. `prime-agent stop <agent>` stops one root agent, while `prime-agent shutdown` stops all workers and the local supervisor.
+Normal interactive sessions are persistent agents backed by isolated worker processes. Closing the TUI detaches the client; use `millwright agents`, `millwright list`, or `millwright attach <agent>` to find and reattach to running work. `millwright stop <agent>` stops one root agent, while `millwright shutdown` stops all workers and the local supervisor.
 
 Within a session, the model can delegate through the `rlm` callable already available in IPython:
 
@@ -133,9 +133,9 @@ Children inherit the parent model unless the user requests another model. They r
 
 ## Context Files
 
-Prime Agent loads `AGENTS.md` or `CLAUDE.md` at startup from:
+Millwright loads `AGENTS.md` or `CLAUDE.md` at startup from:
 
-- `~/.prime/agent/AGENTS.md` for global instructions
+- `~/.millwright/AGENTS.md` for global instructions
 - parent directories, walking up from the current working directory
 - the current directory
 
@@ -145,8 +145,8 @@ Use context files for project conventions, commands, safety rules, and preferenc
 
 Replace the default system prompt with:
 
-- `.prime/agent/SYSTEM.md` for a project
-- `~/.prime/agent/SYSTEM.md` globally
+- `.millwright/SYSTEM.md` for a project
+- `~/.millwright/SYSTEM.md` globally
 
 Append to the default prompt without replacing it with `APPEND_SYSTEM.md` in either location.
 
@@ -159,32 +159,32 @@ Use `/share` to upload a private GitHub gist with a shareable HTML link.
 ## CLI Reference
 
 ```bash
-prime-agent [options] [@files...] [messages...]
+millwright [options] [@files...] [messages...]
 ```
 
 ### Shell Commands
 
 ```bash
-prime-agent agents
-prime-agent list [--all]
-prime-agent attach <agent>
-prime-agent stop <agent>
-prime-agent rename <agent> <name>
-prime-agent send <agent> <message>
-prime-agent schedule <list|add|cancel>
-prime-agent status
-prime-agent doctor [--fix]
-prime-agent shutdown [--force]
+millwright agents
+millwright list [--all]
+millwright attach <agent>
+millwright stop <agent>
+millwright rename <agent> <name>
+millwright send <agent> <message>
+millwright schedule <list|add|cancel>
+millwright status
+millwright doctor [--fix]
+millwright shutdown [--force]
 
-prime-agent package install <source> [--local]
-prime-agent package remove <source> [--local]
-prime-agent package list
-prime-agent package update [source]
-prime-agent update [--force]
-prime-agent config
+millwright package install <source> [--local]
+millwright package remove <source> [--local]
+millwright package list
+millwright package update [source]
+millwright update [--force]
+millwright config
 ```
 
-See [Prime Agent Packages](packages.md) for package sources and security notes.
+See [Millwright Packages](packages.md) for package sources and security notes.
 
 ### Modes
 
@@ -195,10 +195,10 @@ See [Prime Agent Packages](packages.md) for package sources and security notes.
 | `--mode json` | Output all events as JSON lines; see [JSON mode](json.md) |
 | `--mode rpc` | RPC mode over stdin/stdout; see [RPC mode](rpc.md) |
 
-In print mode, Prime Agent also reads piped stdin and merges it into the initial prompt:
+In print mode, Millwright also reads piped stdin and merges it into the initial prompt:
 
 ```bash
-cat README.md | prime-agent -p "Summarize this text"
+cat README.md | millwright -p "Summarize this text"
 ```
 
 ### Model Options
@@ -211,7 +211,7 @@ cat README.md | prime-agent -p "Summarize this text"
 | `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` |
 | `--models <patterns>` | Comma-separated patterns for Ctrl+P cycling |
 
-Use `prime-agent model list [search]` to list available models.
+Use `millwright model list [search]` to list available models.
 
 ### Session Options
 
@@ -223,7 +223,7 @@ Use `prime-agent model list [search]` to list available models.
 | `--session-dir <dir>` | Custom session storage directory |
 | `--no-session` | Ephemeral mode; do not save |
 
-Use `prime-agent session export <file> [output]` to export a session to HTML.
+Use `millwright session export <file> [output]` to export a session to HTML.
 
 ### Tool Options
 
@@ -252,7 +252,7 @@ Built-in tools: `ipython`.
 Combine `--no-*` with explicit flags to load exactly what you need, ignoring settings. Example:
 
 ```bash
-prime-agent --no-extensions -e ./my-extension.ts
+millwright --no-extensions -e ./my-extension.ts
 ```
 
 ### Autonomous Options
@@ -272,12 +272,12 @@ Autonomous mode is a host policy for unattended work. It starts disabled. `--aut
 
 All `<n>` values must be positive integers: zero, negative, fractional, and non-numeric values are rejected. Value-taking autonomous flags require a separate argument, not `--flag=value`. A missing value is rejected, and a following long option is not consumed as a value. Repeating a numeric flag uses its last value; repeating `--autonomous-gate` appends another gate.
 
-After each assistant response, configured gates run before the ordinary continuation limits are evaluated. All gates must pass for the run to finish. A failed gate supplies bounded command output to the next continuation so the agent can repair it; Prime Agent avoids rerunning an unchanged failed gate and advances its attempt count instead. A passing gate permits completion even if a continuation, turn, token, or time limit has otherwise been reached. If a gate does not pass, or if there are no gates, the host can inject another continuation only while all four limits remain below their configured values. Limits are checked in this order: continuations, turns, tokens, then elapsed time. Reaching one prevents another automatic continuation; it does not imply task success.
+After each assistant response, configured gates run before the ordinary continuation limits are evaluated. All gates must pass for the run to finish. A failed gate supplies bounded command output to the next continuation so the agent can repair it; Millwright avoids rerunning an unchanged failed gate and advances its attempt count instead. A passing gate permits completion even if a continuation, turn, token, or time limit has otherwise been reached. If a gate does not pass, or if there are no gates, the host can inject another continuation only while all four limits remain below their configured values. Limits are checked in this order: continuations, turns, tokens, then elapsed time. Reaching one prevents another automatic continuation; it does not imply task success.
 
 For example, this noninteractive run uses a locally available model configuration, skips startup network operations, and bounds every autonomous budget while requiring the project check to pass:
 
 ```bash
-prime-agent -p \
+millwright -p \
   --autonomous \
   --autonomous-gate "npm run check" \
   --autonomous-gate-retries 2 \
@@ -314,65 +314,65 @@ Goals are separate from autonomous mode: `--goal <objective>` starts a persisten
 Prefix files with `@` to include them in the message:
 
 ```bash
-prime-agent @prompt.md "Answer this"
-prime-agent -p @screenshot.png "What's in this image?"
-prime-agent @code.ts @test.ts "Review these files"
+millwright @prompt.md "Answer this"
+millwright -p @screenshot.png "What's in this image?"
+millwright @code.ts @test.ts "Review these files"
 ```
 
 ### Examples
 
 ```bash
 # Interactive with initial prompt
-prime-agent "List all .ts files in src/"
+millwright "List all .ts files in src/"
 
 # Non-interactive
-prime-agent -p "Summarize this codebase"
+millwright -p "Summarize this codebase"
 
 # Non-interactive with piped stdin
-cat README.md | prime-agent -p "Summarize this text"
+cat README.md | millwright -p "Summarize this text"
 
 # Different model
-prime-agent --provider openai --model gpt-4o "Help me refactor"
+millwright --provider openai --model gpt-4o "Help me refactor"
 
 # Model with provider prefix
-prime-agent --model openai/gpt-4o "Help me refactor"
+millwright --model openai/gpt-4o "Help me refactor"
 
 # Model with thinking level shorthand
-prime-agent --model sonnet:high "Solve this complex problem"
+millwright --model sonnet:high "Solve this complex problem"
 
 # Limit model cycling
-prime-agent --models "claude-*,gpt-4o"
+millwright --models "claude-*,gpt-4o"
 
 # Restrict to the built-in IPython tool
-prime-agent --tools ipython -p "Review the code"
+millwright --tools ipython -p "Review the code"
 ```
 
 ### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `PRIME_AGENT_CODING_AGENT_DIR` | Override config directory; default is `~/.prime/agent` |
-| `PRIME_AGENT_SESSION_DIR` | Override session storage directory; overridden by `--session-dir` |
-| `PRIME_AGENT_CODING_AGENT_SESSION_DIR` | Legacy alias for `PRIME_AGENT_SESSION_DIR` |
-| `PI_PACKAGE_DIR` | Override package directory, useful for Nix/Guix store paths |
-| `PI_OFFLINE` | Disable startup network operations, including update checks and package update checks |
-| `PI_SKIP_VERSION_CHECK` | Skip the Prime Agent version update check at startup. This prevents the release manifest request |
-| `PRIME_AGENT_DOWNLOAD_BASE_URL` | Override the Prime Agent release manifest and tarball base URL |
-| `PI_CACHE_RETENTION` | Set to `long` for extended prompt cache where supported |
+| `MILLWRIGHT_CODING_AGENT_DIR` | Override config directory; default is `~/.millwright` |
+| `MILLWRIGHT_SESSION_DIR` | Override session storage directory; overridden by `--session-dir` |
+| `MILLWRIGHT_CODING_AGENT_SESSION_DIR` | Legacy alias for `MILLWRIGHT_SESSION_DIR` |
+| `MILLWRIGHT_PACKAGE_DIR` | Override package directory, useful for Nix/Guix store paths |
+| `MILLWRIGHT_OFFLINE` | Disable startup network operations, including update checks and package update checks |
+| `MILLWRIGHT_SKIP_VERSION_CHECK` | Skip the Millwright version update check at startup. This prevents the release manifest request |
+| `MILLWRIGHT_DOWNLOAD_BASE_URL` | Override the Millwright release manifest and tarball base URL |
+| `MILLWRIGHT_CACHE_RETENTION` | Set to `long` for extended prompt cache where supported |
 | `PRIME_API_KEY` | Prime Inference API key; also used for trace sharing when it has `agent_traces` scope |
 | `PRIME_AGENT_TRACES_API_KEY` | Prime API key used only for opt-in trace sharing |
-| `PRIME_AGENT_TRACES_BASE_URL` | Override the Prime Agent trace upload API base URL |
-| `PRIME_AGENT_KERNEL_PYTHON` | Use an existing Python environment with `ipykernel` instead of bootstrapping `~/.prime/agent/kernel-venv` |
+| `PRIME_AGENT_TRACES_BASE_URL` | Override the Millwright trace upload API base URL |
+| `MILLWRIGHT_KERNEL_PYTHON` | Use an existing Python environment with `ipykernel` instead of bootstrapping `~/.millwright/kernel-venv` |
 | `VISUAL`, `EDITOR` | External editor for Ctrl+G |
 
-The remaining `PI_*` variables are compatibility names still read by the current runtime. They do not change the application name, command, or default `~/.prime/agent` configuration path.
+The remaining `PI_*` variables are compatibility names still read by the current runtime. They do not change the application name, command, or default `~/.millwright` configuration path.
 
 ## Design Principles
 
-Prime Agent keeps the model-facing tool surface small while making the IPython runtime powerful and composable. The built-in `ipython` tool provides durable state, project command execution, Python skills, MCP-backed integrations, and the native `rlm` delegation API without presenting each capability as a separate model tool.
+Millwright keeps the model-facing tool surface small while making the IPython runtime powerful and composable. The built-in `ipython` tool provides durable state, project command execution, Python skills, MCP-backed integrations, and the native `rlm` delegation API without presenting each capability as a separate model tool.
 
 Recursive subagents are a core capability, not an optional extension. The TypeScript host owns every parent and child agent loop so recursion uses the same provider, session, tool, skill, scheduling, usage-accounting, and recovery infrastructure. The Python `rlm` package is a thin host bridge rather than a separate agent implementation.
 
-Extensions, skills, prompt templates, themes, and Prime Agent packages remain the primary customization surfaces. They can add project-specific workflows, custom tools and UI, permission policies, provider integrations, and orchestration patterns around the built-in runtime.
+Extensions, skills, prompt templates, themes, and Millwright packages remain the primary customization surfaces. They can add project-specific workflows, custom tools and UI, permission policies, provider integrations, and orchestration patterns around the built-in runtime.
 
-Prime Agent preserves MIT attribution to pi-mono for its upstream lineage, but upstream Pi product claims and limitations do not describe the current Prime Agent architecture.
+Millwright preserves MIT attribution to pi-mono for its upstream lineage, but upstream Pi product claims and limitations do not describe the current Millwright architecture.

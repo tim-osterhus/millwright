@@ -13,7 +13,7 @@
  * 3. Read allowed files with basic truncation
  *
  * Usage:
- *   pi -e ./tool-override.ts
+ *   millwright -e ./tool-override.ts
  */
 
 import type { TextContent } from "@earendil-works/pi-ai";

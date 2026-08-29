@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import chalk from "chalk";
 import { spawn } from "child_process";
-import { expandTildePath } from "../config.js";
+import { expandTildePath, resolveSafeStateOverride } from "../config.js";
 import type { AgentSessionEvent } from "../core/agent-session.js";
 import type { AgentSessionRuntimeConfig } from "../core/agent-session-config.js";
 import { type AgentCronJob, formatAgentCronJob } from "../core/cron-jobs.js";
@@ -433,10 +433,10 @@ function parseSessionOption(
 		if (!value) {
 			throw new Error(`${arg.split("=")[0]} requires a value`);
 		}
-		return {
-			consumed,
-			sessionPath: looksLikeSessionPath(value) ? resolvePathOption(value, config.cwd ?? pathBaseCwd) : value,
-		};
+		const sessionPath = looksLikeSessionPath(value)
+			? resolveSafeStateOverride(resolvePathOption(value, config.cwd ?? pathBaseCwd), arg.split("=")[0] ?? arg)
+			: value;
+		return { consumed, sessionPath };
 	};
 	const boolean = (daemonArg = arg): ParsedSessionOption => ({ consumed: 0, daemonArg });
 
@@ -453,7 +453,7 @@ function parseSessionOption(
 			return withSessionSelector(readValue(), 1);
 		case "--session-dir":
 			return withParsedValue(arg, (value) => {
-				config.sessionDir = expandTildePath(value);
+				config.sessionDir = resolveSafeStateOverride(expandTildePath(value), arg);
 			});
 		case "--provider":
 			return withParsedValue(arg, (value) => {
