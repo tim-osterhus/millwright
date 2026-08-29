@@ -347,7 +347,10 @@ describe("ENG-4606 update restart coordinator", () => {
 		expect(status).toMatchObject({ phase: "skipped", socketPath });
 	});
 
-	it("outlives a daemon-owned updater and restores the exact custom socket", async () => {
+	it("outlives a daemon-owned updater and restores the exact custom socket", {
+		tags: ["process-stress"],
+		timeout: 180_000,
+	}, async () => {
 		if (process.platform === "win32") {
 			return;
 		}
@@ -446,5 +449,5 @@ describe("ENG-4606 update restart coordinator", () => {
 			throw new Error("Replacement daemon did not report its supervisor PID");
 		}
 		await waitForProcessExit(replacementHello.supervisorPid);
-	}, 180_000);
+	});
 });
