@@ -4,6 +4,7 @@ import { type AssistantMessage, fauxAssistantMessage, type Model, type ToolResul
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionManager } from "../../src/core/session-manager.js";
 import { createHarness, getMessageText, type Harness } from "./harness.js";
+import { createDeferred } from "./scheduling.js";
 
 type SessionWithCompactionInternals = {
 	_checkCompaction: (
@@ -1118,20 +1119,42 @@ describe("AgentSession compaction characterization", () => {
 			...fauxAssistantMessage("done"),
 			usage: createUsage(10_000),
 		};
-		harness.setResponses([highUsageDone, fauxAssistantMessage("retry")]);
+		const continuationStarted = createDeferred();
+		const continuationResponse = createDeferred();
+		harness.setResponses([
+			highUsageDone,
+			async () => {
+				continuationStarted.resolve();
+				await continuationResponse.promise;
+				return fauxAssistantMessage("retry");
+			},
+		]);
 		let promptSettled = false;
 		const promptPromise = harness.session.prompt("make the change").finally(() => {
 			promptSettled = true;
 		});
-
-		// The gate runs in a real child process. Keep this wait on real time so a
-		// loaded test shard cannot exhaust a fake-timer polling budget before the
-		// child reports its expected failure.
-		await vi.waitFor(() => expect(harness.session.getAutonomousStatus().continuationsUsed).toBe(1), {
-			timeout: 10_000,
+		let continuationStartTimer: ReturnType<typeof setTimeout> | undefined;
+		const continuationStartTimeout = new Promise<never>((_, reject) => {
+			continuationStartTimer = setTimeout(
+				() => reject(new Error("Timed out waiting for autonomous continuation response to start")),
+				10_000,
+			);
 		});
-		expect(promptSettled).toBe(false);
-		await promptPromise;
+
+		let checkpointError: unknown;
+		try {
+			await Promise.race([continuationStarted.promise, continuationStartTimeout]);
+			expect(harness.session.getAutonomousStatus().continuationsUsed).toBe(1);
+			expect(promptSettled).toBe(false);
+		} catch (error) {
+			checkpointError = error;
+		} finally {
+			if (continuationStartTimer !== undefined) clearTimeout(continuationStartTimer);
+			continuationResponse.resolve();
+		}
+		const [promptResult] = await Promise.allSettled([promptPromise]);
+		if (checkpointError !== undefined) throw checkpointError;
+		if (promptResult.status === "rejected") throw promptResult.reason;
 
 		expect(harness.session.getAutonomousStatus()).toMatchObject({
 			continuationsUsed: 1,
