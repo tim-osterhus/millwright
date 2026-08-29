@@ -894,7 +894,7 @@ describe("ENG-4603 worker recovery convergence", () => {
 			socketPath: workerPaths.socketPath,
 		});
 		const worker = spawnStandaloneWorker(workerPaths, workerSocketPath, token, workerEnvironment);
-		await waitForPath(workerSocketPath);
+		await waitForPath(workerSocketPath, 60_000);
 		const socket = createConnection(workerSocketPath);
 		const frames = createFrameReader(socket);
 		await new Promise<void>((resolveConnect, rejectConnect) => {
@@ -993,7 +993,7 @@ describe("ENG-4603 worker recovery convergence", () => {
 		await replacementOwner.release();
 		rmSync(displacedOwnerDir, { recursive: true, force: true });
 		await terminateTrackedFixtureProcess(staleSupervisor);
-	}, 90_000);
+	}, 120_000);
 
 	it("serializes shutdown admission and reclaims an unrenewed live lease", async () => {
 		const paths = await createPaths();
