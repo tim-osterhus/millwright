@@ -206,6 +206,12 @@ test("ordinary macOS and Ubuntu CI qualify the verified installed artifact witho
 	assert.match(cleanup.run, /test ! -e "\$RUNNER_TEMP\/millwright-installed"/u);
 });
 
+test("installed artifact qualification isolates HOME under the task-owned runner temp sibling", () => {
+	const value = workflow(".github/workflows/ci.yml");
+	const installed = value.jobs.verify.steps.find((step) => step.name === "Qualify installed artifact");
+	assert.equal(installed?.env?.HOME, "${{ runner.temp }}/millwright-home");
+});
+
 test("coding-agent process regressions run in a dedicated serial lane", () => {
 	const scripts = JSON.parse(read("packages/coding-agent/package.json")).scripts;
 	assert.equal(

@@ -113,6 +113,8 @@ jobs:
 
       - name: Qualify installed artifact
         shell: bash
+        env:
+          HOME: ${{ runner.temp }}/millwright-home
         run: |
           set -euo pipefail
           mkdir "$RUNNER_TEMP/millwright-installed"
