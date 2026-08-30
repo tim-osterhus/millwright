@@ -92,10 +92,6 @@ jobs:
             npm run test:process-stress --workspace=packages/coding-agent
             npm run test:kernel --workspace=packages/coding-agent
             node --test scripts/tests/verify-millwright-release.test.mjs scripts/tests/workflow-contract.test.mjs
-            MILLWRIGHT_OFFLINE=1 npx vitest --run \
-              packages/coding-agent/test/product-identity.test.ts \
-              packages/coding-agent/test/refinement.test.ts \
-              packages/coding-agent/test/daemon-mode.test.ts
           } 2>&1 | tee "$RUNNER_TEMP/tests.log"
 
       - name: Pack one clean artifact
@@ -115,6 +111,26 @@ jobs:
             | tee "$RUNNER_TEMP/millwright-pack/package-report.json" \
             | tee "$RUNNER_TEMP/installSmoke.log"
 
+      - name: Qualify installed artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/millwright-installed"
+          node scripts/qualify-installed-millwright.mjs \
+            --tarball "$RUNNER_TEMP/millwright-pack/millwright-agent-0.0.1.tgz" \
+            --source-commit "$GITHUB_SHA" \
+            --temporary-root "$RUNNER_TEMP/millwright-installed/driver-temp" \
+            --results "$RUNNER_TEMP/millwright-installed/installed-driver"
+
+      - name: Upload installed qualification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: millwright-installed-${{ matrix.os }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/millwright-installed/installed-driver/installed-qualification.json
+          if-no-files-found: ignore
+          retention-days: 90
+
       - name: Verify clean source
         shell: bash
         run: |
@@ -126,11 +142,15 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          INSTALLED_REPORT="$RUNNER_TEMP/millwright-installed/installed-driver/installed-qualification.json"
+          INSTALLED_REPORT_SHA="$(shasum -a 256 "$INSTALLED_REPORT" | awk '{print $1}')"
           node scripts/write-millwright-qualification-report.mjs \
             --output "$RUNNER_TEMP/qualification-report.json" \
             --pack-report "$RUNNER_TEMP/millwright-pack/pack-report.json" \
             --package-report "$RUNNER_TEMP/millwright-pack/package-report.json" \
             --logs-dir "$RUNNER_TEMP" \
+            --installed-report "$INSTALLED_REPORT" \
+            --installed-report-sha256 "$INSTALLED_REPORT_SHA" \
             | tee "$RUNNER_TEMP/qualification-summary.json"
           REPORT_SHA="$(shasum -a 256 "$RUNNER_TEMP/qualification-report.json" | awk '{print $1}')"
           echo "Qualification report SHA-256: $REPORT_SHA" >> "$GITHUB_STEP_SUMMARY"
@@ -157,6 +177,10 @@ jobs:
         if: always()
         shell: bash
         run: |
+          cleanup_failed=0
+          test ! -e "$RUNNER_TEMP/millwright-installed/driver-temp" || cleanup_failed=1
+          rm -rf "$RUNNER_TEMP/millwright-installed"
+          test ! -e "$RUNNER_TEMP/millwright-installed"
           rm -rf "$RUNNER_TEMP/millwright-pack" "$RUNNER_TEMP/millwright-home"
           rm -f \
             "$RUNNER_TEMP/build.log" \
@@ -168,3 +192,4 @@ jobs:
             "$RUNNER_TEMP/qualification-summary.json" \
             "$RUNNER_TEMP/tests.log" \
             "$RUNNER_TEMP/types.log"
+          test "$cleanup_failed" -eq 0

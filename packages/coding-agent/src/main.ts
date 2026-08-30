@@ -1674,8 +1674,9 @@ export async function main(args: string[], options?: MainOptions) {
 			console.log(chalk.dim(`Model scope: ${modelList} ${chalk.gray("(Ctrl+P to cycle)")}`));
 		}
 
+		const interactiveConnection = new InProcessAgentConnection(runtime);
 		const interactiveMode = new InteractiveMode({
-			agentConnection: new InProcessAgentConnection(runtime),
+			agentConnection: interactiveConnection,
 			localSessionHost: createInteractiveModeLocalSessionHost(runtime),
 			promptStashStore: new ClientPromptStashStore(),
 			promptStashSessionId: session.sessionId,
@@ -1688,11 +1689,18 @@ export async function main(args: string[], options?: MainOptions) {
 			verbose: parsed.verbose,
 		});
 		if (startupBenchmark) {
-			await interactiveMode.init();
-			time("interactiveMode.init");
-			printTimings();
-			interactiveMode.stop();
-			stopThemeWatcher();
+			try {
+				await interactiveMode.init();
+				time("interactiveMode.init");
+				printTimings();
+			} finally {
+				try {
+					interactiveMode.stop();
+					stopThemeWatcher();
+				} finally {
+					await interactiveConnection.dispose();
+				}
+			}
 			if (process.stdout.writableLength > 0) {
 				await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
 			}
