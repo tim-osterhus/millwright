@@ -7648,14 +7648,14 @@ export class AgentSession {
 	private _loadMergedHarnessState(): HarnessState {
 		const localHarnessStateDir = this._localHarnessStateDir();
 		return mergeHarnessStates(
-			loadHarnessState(getGlobalHarnessStateDir(), "global"),
+			loadHarnessState(getGlobalHarnessStateDir(this._agentDir), "global"),
 			localHarnessStateDir ? loadHarnessState(localHarnessStateDir, "local") : undefined,
 		);
 	}
 
 	private _loadRefinementHistory(): RefinementResult[] {
 		return mergeRefinementHistory(
-			loadGlobalRefinementHistory(getGlobalHarnessStateDir()),
+			loadGlobalRefinementHistory(getGlobalHarnessStateDir(this._agentDir)),
 			getRefinementHistory(this.sessionManager.getEntries().filter((entry) => entry.type === "custom")),
 		);
 	}
@@ -7812,7 +7812,7 @@ export class AgentSession {
 
 		const model = this.model;
 		const { apiKey, headers } = await this._getRequiredRequestAuth(model);
-		const globalHarnessStateDir = getGlobalHarnessStateDir();
+		const globalHarnessStateDir = getGlobalHarnessStateDir(this._agentDir);
 		const localHarnessStateDir = this._localHarnessStateDir();
 		const requestedScope = options.global ? "global" : "local";
 		if (!options.rollbackId && requestedScope === "local" && !localHarnessStateDir) {
@@ -7877,7 +7877,7 @@ export class AgentSession {
 		this._disconnectFromAgent();
 
 		try {
-			const globalHarnessStateDir = getGlobalHarnessStateDir();
+			const globalHarnessStateDir = getGlobalHarnessStateDir(this._agentDir);
 			const localHarnessStateDir = this._localHarnessStateDir();
 			const requestedScope = options.global ? "global" : "local";
 			const history = this._loadRefinementHistory();
@@ -8902,7 +8902,7 @@ export class AgentSession {
 		const env: Record<string, string> = {
 			RLM_DEPTH: String(this._rlmDepth),
 			RLM_MAX_DEPTH: String(this._rlmMaxDepth),
-			RLM_GLOBAL_HARNESS_STATE_DIR: getGlobalHarnessStateDir(),
+			RLM_GLOBAL_HARNESS_STATE_DIR: getGlobalHarnessStateDir(this._agentDir),
 		};
 		const rlmSessionDir = this._ensureRlmSessionDir();
 		if (rlmSessionDir) {

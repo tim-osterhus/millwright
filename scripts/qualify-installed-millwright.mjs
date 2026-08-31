@@ -1064,11 +1064,11 @@ function classifyIdentity(entries) {
 }
 
 function identityProbe(installedRoot, commandOutput, temporaryRoot, fixture) {
-	const textFile = (path) => /\.(?:c?js|mjs|json|md|txt|yaml|yml|toml|py)$/iu.test(path);
+	const textFile = (path) => /\.(?:c?js|mjs|ts|tsx|json|md|txt|yaml|yml|toml|py)$/iu.test(path);
 	const stateRoots = existsSync(join(temporaryRoot, "cases"))
 		? readdirSync(join(temporaryRoot, "cases"), { withFileTypes: true })
 			.filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
-			.flatMap((entry) => ["home", "project", "sessions"].map((name) => join(temporaryRoot, "cases", entry.name, name)))
+			.flatMap((entry) => ["home", "project", "sessions", "session-artifacts"].map((name) => join(temporaryRoot, "cases", entry.name, name)))
 		: [];
 	const daemonStateRoots = DAEMON_CASE_IDS.flatMap((id) => ["home", "project", "sessions"].map((name) => join(temporaryRoot, "cases", `daemon-${id}`, name)));
 	const observedStateTree = stateRoots.flatMap((root) => identityFiles(root, () => true, "observedStateTrees")).map((path) => relative(temporaryRoot, path).split(sep).join("/")).sort((left, right) => Buffer.from(left).compare(Buffer.from(right))).join("\n");

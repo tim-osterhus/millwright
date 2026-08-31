@@ -3342,6 +3342,54 @@ describe("AgentSession RLM session dir", () => {
 		expect(prompt).toContain("Loaded from the RLM session harness path.");
 	});
 
+	it("uses the configured agentDir for global harness state and the host system prompt", () => {
+		const agentDir = join(tempDir, "configured-agent-dir");
+		const defaultAgentDir = join(tempDir, "process-default-agent-dir");
+		mkdirSync(join(agentDir, "harness"), { recursive: true });
+		writeFileSync(
+			join(agentDir, "harness", "harness_state.json"),
+			JSON.stringify({
+				schema: 1,
+				entries: {
+					prompt: {},
+					memory: {
+						configured_global_memory: {
+							id: "configured_global_memory",
+							kind: "memory",
+							title: "Configured global memory",
+							content: "Loaded from the configured global harness path.",
+							path: "000",
+							scope: "global",
+							reference: {},
+							arguments: {},
+							metadata: {},
+							source: "test",
+							created_at: "2026-01-01T00:00:00.000Z",
+							updated_at: "2026-01-01T00:00:00.000Z",
+							version: 1,
+						},
+					},
+					skill: {},
+					subagent: {},
+				},
+				refinements: [],
+			}),
+			"utf8",
+		);
+		const previousAgentDir = process.env.MILLWRIGHT_CODING_AGENT_DIR;
+		process.env.MILLWRIGHT_CODING_AGENT_DIR = defaultAgentDir;
+		try {
+			const root = createSession(SessionManager.inMemory(tempDir), agentDir);
+			const inspectable = root as unknown as InspectableRlmDirSession;
+
+			expect(inspectable._rlmKernelEnv().RLM_GLOBAL_HARNESS_STATE_DIR).toBe(join(agentDir, "harness"));
+			expect(root.systemPrompt).toContain("Loaded from the configured global harness path.");
+		} finally {
+			if (previousAgentDir === undefined) delete process.env.MILLWRIGHT_CODING_AGENT_DIR;
+			else process.env.MILLWRIGHT_CODING_AGENT_DIR = previousAgentDir;
+		}
+	});
+
 	it("exports the configured agentDir to the kernel so skills find auth.json", () => {
 		const agentDir = join(tempDir, "custom-agent-dir");
 		const root = createSession(SessionManager.inMemory(tempDir), agentDir);

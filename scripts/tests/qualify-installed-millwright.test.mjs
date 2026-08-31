@@ -113,6 +113,9 @@ async function qualifyInstalledStateForTest({ roots, installedRoot }, forceFailu
 	mkdirSync(roots.agent, { recursive: true });
 	mkdirSync(roots.session, { recursive: true });
 	mkdirSync(roots.project, { recursive: true });
+	const sessionArtifactMarker = join(roots.base, "session-artifacts", "Prime Agent marker", "state.txt");
+	mkdirSync(dirname(sessionArtifactMarker), { recursive: true });
+	writeFileSync(sessionArtifactMarker, "Millwright session artifact fixture.\n");
 	writeFileSync(join(roots.agent, "settings.json"), JSON.stringify({ autoRefine: { enabled: true } }));
 	writeFileSync(join(roots.session, "fixture-session.jsonl"), "fixture session\\n");
 	const skill = join(roots.project, "fixture-skill", "SKILL.md");
@@ -174,6 +177,7 @@ function createFixtureTarball(outer, { artifactMarker = false, forceFailure, ove
 	write(join(packageRoot, "docs/runtime.md"), "Millwright runtime fixture.\n");
 	if (oversizedIdentity) write(join(packageRoot, "docs/oversized.md"), `Millwright ${"x".repeat(16 * 1024 * 1024)}\n`);
 	write(join(packageRoot, "examples/example.md"), "Millwright example fixture.\n");
+	write(join(packageRoot, "examples/example.ts"), 'export const productName = "Millwright";\n');
 	write(join(packageRoot, "skills/refine/SKILL.md"), "---\nname: refine\ndescription: Millwright fixture\n---\n");
 	const packed = spawnSync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", output], {
 		cwd: packageRoot,
@@ -458,6 +462,11 @@ test("qualifies one synthetic installed package with isolated case roots and the
 		assert.equal(report.records.find(({ id }) => id === "legacyState").details.byteUnchanged, true);
 		assert.equal(report.records.find(({ id }) => id === "legacyState").details.sentinelCount, 32);
 		assert.deepEqual(report.records.find(({ id }) => id === "legacyState").details.sentinelLocations, ["home/.prime", "home/.millrace-cli", "project/.prime", "project/.millrace-cli"]);
+		const identity = report.records.find(({ id }) => id === "identity");
+		const shippedDocsExamples = identity.details.surfaces.find(({ id }) => id === "shippedDocsExamples");
+		assert.equal(shippedDocsExamples.hitCount, 4);
+		const observedStateTrees = identity.details.surfaces.find(({ id }) => id === "observedStateTrees");
+		assert.equal(observedStateTrees.classificationCounts["forbidden-accidental-identity"], 4, "session-artifacts identity marker was not scanned");
 		assert.equal(report.records.find(({ id }) => id === "cleanup").details.temporaryRootRemoved, true);
 		assert.equal(JSON.stringify(report).includes("must-not-appear"), false);
 		assert.equal(JSON.stringify(report).includes(outer), false);
