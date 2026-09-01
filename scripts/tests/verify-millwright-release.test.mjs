@@ -53,9 +53,8 @@ function sourceTreeSha256(repo, commit) {
 	for (const row of listing.stdout.subarray(0, -1).toString("utf8").split("\0")) {
 		const match = row.match(/^(\d+) blob ([0-9a-f]{40})\t(.+)$/u);
 		if (!match || match[3] === "RELEASE.json") continue;
-		const content = spawnSync("git", ["cat-file", "blob", match[2]], { cwd: repo, encoding: null });
-		assert.equal(content.status, 0);
-		records.push({ mode: match[1], path: match[3], digest: sha256(content.stdout) });
+		const content = readFileSync(join(repo, match[3]));
+		records.push({ mode: match[1], path: match[3], digest: sha256(content) });
 	}
 	records.sort((left, right) => Buffer.from(left.path).compare(Buffer.from(right.path)));
 	return sha256(Buffer.from(records.map(({ mode, digest, path }) => `${mode}\t${digest}\t${path}\n`).join(""), "utf8"));
@@ -79,6 +78,7 @@ function createFixture(options = {}) {
 	writeCanonical(join(repo, "package.json"), { name: "millwright", private: true, version: "0.7.2" });
 	writeFileSync(join(repo, ".node-version"), "22.22.0\n");
 	writeFileSync(join(repo, "source.txt"), "qualified source\n");
+	if (options.largeTrackedBlob) writeFileSync(join(repo, "large.bin"), Buffer.alloc(1_500_000, 0x5a));
 	git(repo, "add", ".");
 	git(repo, "commit", "-qm", "qualified source");
 	const sourceCommit = git(repo, "rev-parse", "HEAD");
@@ -224,6 +224,20 @@ test("release verifier accepts the exact frozen manifest, tag, artifact, and qua
 		assert.equal(report.verified, true);
 		assert.equal(report.releaseTag, "v0.0.1");
 		assert.equal(report.artifactSha256, sha256(readFileSync(fixture.artifactPath)));
+	} finally {
+		rmSync(fixture.root, { recursive: true, force: true });
+	}
+});
+
+test("pre-tag verification accepts a tracked blob larger than the default child-process buffer", () => {
+	const fixture = createFixture({ preTag: true, largeTrackedBlob: true });
+	try {
+		const result = verifyFixture(fixture, ["--pre-tag"]);
+		assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+		const report = JSON.parse(result.stdout);
+		assert.equal(report.verified, true);
+		assert.equal(report.mode, "pre-tag");
+		assert.equal(report.tagCommit, null);
 	} finally {
 		rmSync(fixture.root, { recursive: true, force: true });
 	}

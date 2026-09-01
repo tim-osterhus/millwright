@@ -16,6 +16,7 @@ const REPOSITORY = "tim-osterhus/millwright";
 const UPSTREAM_VERSION = "0.7.2";
 const UPSTREAM_COMMIT = "9f9501146e869466acaca66dac49cff857b7b4f9";
 const REVIEW_ROLES = ["spec-conformance", "package-code-quality", "stateful-adversarial"];
+const BLOB_BUFFER_ALLOWANCE = 64 * 1024;
 
 function fail(message) {
 	throw new Error(message);
@@ -99,9 +100,14 @@ function parseArgs(args) {
 	};
 }
 
-function git(repo, args, encoding = "utf8") {
-	const result = spawnSync("git", args, { cwd: repo, encoding, stdio: ["ignore", "pipe", "pipe"] });
-	if (result.status !== 0) fail(`git ${args.join(" ")} failed: ${result.stderr?.toString().trim() || "unknown error"}`);
+function git(repo, args, encoding = "utf8", maxBuffer) {
+	const options = { cwd: repo, encoding, stdio: ["ignore", "pipe", "pipe"] };
+	if (maxBuffer !== undefined) options.maxBuffer = maxBuffer;
+	const result = spawnSync("git", args, options);
+	if (result.status !== 0) {
+		const detail = result.error?.message || result.stderr?.toString().trim() || "unknown error";
+		fail(`git ${args.join(" ")} failed: ${detail}`);
+	}
 	return result.stdout;
 }
 
@@ -114,7 +120,7 @@ function assertCommit(value, field) {
 }
 
 function sourceTreeSha256(repo, commit) {
-	const listing = git(repo, ["ls-tree", "-rz", commit], null);
+	const listing = git(repo, ["ls-tree", "-rlz", commit], null);
 	const records = [];
 	let cursor = 0;
 	while (cursor < listing.length) {
@@ -125,15 +131,21 @@ function sourceTreeSha256(repo, commit) {
 		if (row.length === 0) continue;
 		const tab = row.indexOf(9);
 		if (tab === -1) fail("source tree record has no path separator");
-		const metadata = row.subarray(0, tab).toString("ascii").split(" ");
+		const metadata = row.subarray(0, tab).toString("ascii").match(/^(\d+) (\S+) ([0-9a-f]{40})(?: +(\d+))?$/u);
 		const pathBytes = row.subarray(tab + 1);
 		const path = pathBytes.toString("utf8");
-		if (metadata.length !== 3 || metadata[1] !== "blob") fail(`source tree contains unsupported entry: ${path}`);
+		if (!metadata || metadata[2] !== "blob" || metadata[4] === undefined) fail(`source tree contains unsupported entry: ${path}`);
+		const mode = metadata[1];
+		const objectId = metadata[3];
+		const size = Number(metadata[4]);
+		if (!Number.isSafeInteger(size) || size < 0) fail(`source tree blob size is invalid at ${path}`);
 		if (path === "RELEASE.json") continue;
-		if (!["100644", "100755"].includes(metadata[0])) fail(`source tree contains a non-regular tracked mode at ${path}`);
+		if (!["100644", "100755"].includes(mode)) fail(`source tree contains a non-regular tracked mode at ${path}`);
 		if (/[\t\n\r]/u.test(path)) fail(`source path contains a forbidden control character: ${path}`);
-		const content = git(repo, ["cat-file", "blob", metadata[2]], null);
-		records.push({ mode: metadata[0], digest: sha256(content), path, pathBytes });
+		const maxBuffer = size + BLOB_BUFFER_ALLOWANCE;
+		if (!Number.isSafeInteger(maxBuffer)) fail(`source tree blob size is too large for a safe buffer at ${path}`);
+		const content = git(repo, ["cat-file", "blob", objectId], null, maxBuffer);
+		records.push({ mode, digest: sha256(content), path, pathBytes });
 	}
 	records.sort((left, right) => Buffer.compare(left.pathBytes, right.pathBytes));
 	const manifest = records.map(({ mode, digest, path }) => `${mode}\t${digest}\t${path}\n`).join("");
