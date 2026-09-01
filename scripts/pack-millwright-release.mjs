@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { crc32, gunzipSync } from "node:zlib";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const PACKER_VERSION = "millwright-release-packer/1";
+const PACKER_VERSION = "millwright-release-packer/2";
 const REQUIRED_NODE = "22.22.0";
 const REQUIRED_NPM = "10.9.2";
 const PUBLIC_NAME = "millwright-agent";
@@ -541,9 +541,8 @@ function createPublicManifest(codingManifest, dependencies) {
 	result.version = PUBLIC_VERSION;
 	result.bin = { [PUBLIC_COMMAND]: "dist/bundle/cli.js" };
 	result.engines = { ...(result.engines || {}), node: ">=22.8.0" };
-	result.dependencies = dependencies.dependencies;
-	result.optionalDependencies = dependencies.optionalDependencies;
-	result.bundledDependencies = [...BUNDLED];
+	result.dependencies = Object.fromEntries(Object.entries(dependencies.dependencies).filter(([name]) => !BUNDLED.includes(name)));
+	result.optionalDependencies = Object.fromEntries(Object.entries(dependencies.optionalDependencies).filter(([name]) => !BUNDLED.includes(name)));
 	result.files = [
 		"CHANGELOG.md",
 		"LICENSE",
@@ -564,8 +563,23 @@ function createPublicManifest(codingManifest, dependencies) {
 	delete result.private;
 	delete result.devDependencies;
 	delete result.overrides;
+	delete result.bundledDependencies;
 	delete result.bundleDependencies;
 	return Object.fromEntries(Object.entries(result).filter(([, value]) => value !== undefined));
+}
+
+function createPackManifest(publicManifest, dependencies) {
+	const result = {
+		...publicManifest,
+		dependencies: { ...(publicManifest.dependencies || {}) },
+		bundledDependencies: [...BUNDLED],
+	};
+	for (const name of BUNDLED) {
+		const range = dependencies.dependencies[name];
+		if (typeof range !== "string" || !range) fail(`Missing pack-only dependency range for ${name}`);
+		result.dependencies[name] = range;
+	}
+	return result;
 }
 
 function normalizeTree(path, relativePath = "") {
@@ -622,10 +636,30 @@ function deterministicGzip(input) {
 	return Buffer.concat(chunks);
 }
 
-function sortNpmArchive(path) {
+function encodeTarOctal(value, length) {
+	const encoded = value.toString(8);
+	if (encoded.length > length - 1) fail(`Tar value ${value} exceeds ${length}-byte field`);
+	return `${encoded.padStart(length - 1, "0")}\0`;
+}
+
+function replaceTarEntryData(headerBytes, data) {
+	const header = Buffer.from(headerBytes);
+	header.fill(0, 124, 136);
+	header.write(encodeTarOctal(data.length, 12), 124, 12, "ascii");
+	header.fill(0x20, 148, 156);
+	let checksum = 0;
+	for (const byte of header) checksum += byte;
+	const encodedChecksum = `${checksum.toString(8).padStart(6, "0")}\0 `;
+	if (encodedChecksum.length !== 8) fail("Tar checksum exceeds 8-byte field");
+	header.write(encodedChecksum, 148, 8, "ascii");
+	return Buffer.concat([header, data, Buffer.alloc((512 - (data.length % 512)) % 512)]);
+}
+
+function sortNpmArchive(path, replacements = new Map()) {
 	const compressed = readFileSync(path);
 	const tar = gunzipSync(compressed);
 	const entries = [];
+	const pending = new Map(replacements);
 	let offset = 0;
 	while (offset + 512 <= tar.length) {
 		const header = tar.subarray(offset, offset + 512);
@@ -637,9 +671,17 @@ function sortNpmArchive(path) {
 		const size = sizeText ? Number.parseInt(sizeText, 8) : 0;
 		const next = offset + 512 + Math.ceil(size / 512) * 512;
 		if (next > tar.length) fail(`Truncated npm archive entry: ${entryPath}`);
-		entries.push({ path: entryPath, bytes: Buffer.from(tar.subarray(offset, next)) });
+		const replacement = pending.get(entryPath);
+		if (replacement !== undefined) pending.delete(entryPath);
+		entries.push({
+			path: entryPath,
+			bytes: replacement === undefined
+				? Buffer.from(tar.subarray(offset, next))
+				: replaceTarEntryData(header, replacement),
+		});
 		offset = next;
 	}
+	if (pending.size > 0) fail(`Archive replacement targets are missing: ${[...pending.keys()].join(", ")}`);
 	entries.sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
 	const normalizedTar = Buffer.concat([...entries.map((entry) => entry.bytes), Buffer.alloc(1024)]);
 	// Native zlib can choose different DEFLATE matches across platform builds.
@@ -744,7 +786,9 @@ function main() {
 		}
 		stage = mkdtempSync(join(output, ".millwright-stage-"));
 		const codingSource = sources.get("coding-agent");
-		const publicManifest = createPublicManifest(codingSource.manifest, publicDependencies(sources));
+		const dependencies = publicDependencies(sources);
+		const publicManifest = createPublicManifest(codingSource.manifest, dependencies);
+		const packManifest = createPackManifest(publicManifest, dependencies);
 		const publicStage = stage;
 		writeJson(join(publicStage, "package.json"), publicManifest);
 		for (const entry of packageFiles(join(root, codingSource.workspace.directory), codingSource.manifest)) {
@@ -779,8 +823,11 @@ function main() {
 			stagedInputManifestSha256: staged.sha256,
 		});
 		normalizeTree(publicStage);
+		const finalManifestBytes = readFileSync(join(publicStage, "package.json"));
+		writeJson(join(publicStage, "package.json"), packManifest);
 		const npmOutput = runNpm(["pack", "--json", "--silent", "--ignore-scripts", "--pack-destination", output], publicStage, "npm pack", { quiet: true });
-		sortNpmArchive(join(output, `${PUBLIC_NAME}-${PUBLIC_VERSION}.tgz`));
+		writeFileSync(join(publicStage, "package.json"), finalManifestBytes);
+		sortNpmArchive(join(output, `${PUBLIC_NAME}-${PUBLIC_VERSION}.tgz`), new Map([["package/package.json", finalManifestBytes]]));
 		let npmReport;
 		try { npmReport = JSON.parse(npmOutput).at(-1); } catch { fail("npm pack did not return JSON metadata"); }
 		const tarballName = npmReport?.filename;

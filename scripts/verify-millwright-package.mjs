@@ -17,16 +17,16 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const PACKER_VERSION = "millwright-release-packer/1";
+const PACKER_VERSION = "millwright-release-packer/2";
 const PUBLIC_NAME = "millwright-agent";
 const PUBLIC_VERSION = "0.0.3";
 const TAR_MTIME = 499162500;
-const BUNDLED = [
+const EMBEDDED_INTERNAL_PACKAGES = [
 	"@earendil-works/pi-agent-core",
 	"@earendil-works/pi-ai",
 	"@earendil-works/pi-tui",
 ];
-const BUNDLED_SET = new Set(BUNDLED);
+const EMBEDDED_INTERNAL_SET = new Set(EMBEDDED_INTERNAL_PACKAGES);
 const LEGACY_PACKAGE_NAMES = new Set([
 	"@earendil-works/pi-coding-agent",
 	"prime-agent",
@@ -367,7 +367,7 @@ function verifyPublicManifest(manifest, files) {
 	if (Object.hasOwn(manifest, "private")) fail("Public manifest must not be private");
 	if (JSON.stringify(manifest.bin) !== JSON.stringify({ millwright: "dist/bundle/cli.js" })) fail("Public executable mapping is not frozen");
 	if (manifest.engines?.node !== ">=22.8.0") fail("Public Node engine floor is not >=22.8.0");
-	if (!Array.isArray(manifest.bundledDependencies) || JSON.stringify(manifest.bundledDependencies) !== JSON.stringify(BUNDLED)) fail("Bundled dependency closure is not frozen");
+	if (Object.hasOwn(manifest, "bundledDependencies") || Object.hasOwn(manifest, "bundleDependencies")) fail("Public manifest must not declare recursive npm bundle metadata");
 	if (!Array.isArray(manifest.files)) fail("Public manifest must declare files");
 	if (JSON.stringify(manifest.files) !== JSON.stringify([...manifest.files].sort((left, right) => Buffer.from(left).compare(Buffer.from(right))))) fail("Public files list is not sorted");
 	for (const path of ["dist", "docs", "examples", "skills", "postinstall.cjs", "CHANGELOG.md", "LICENSE", "LICENSES", "NOTICE", "THIRD_PARTY_NOTICES.md", "UPSTREAM.md", "UPSTREAM.json", "PROVENANCE.json"]) {
@@ -386,6 +386,7 @@ function verifyPublicManifest(manifest, files) {
 	for (const fieldName of ["dependencies", "optionalDependencies", "peerDependencies"]) {
 		const field = manifest[fieldName] || {};
 		for (const [name, range] of Object.entries(field)) {
+			if (EMBEDDED_INTERNAL_SET.has(name)) fail(`Embedded internal package must not be resolved through npm: ${name}`);
 			if (LEGACY_PACKAGE_NAMES.has(name)) fail(`Internal package is not bundled exclusively: ${name}`);
 			if (typeof range !== "string" || range.length === 0) fail(`Invalid public dependency range for ${name}`);
 		}
@@ -396,23 +397,23 @@ function verifyPublicManifest(manifest, files) {
 	if (/prime-agent-(?:ai|core|tui)|@earendil-works\/pi-coding-agent/iu.test(JSON.stringify(manifest))) fail("Public manifest contains a legacy product alias");
 }
 
-function verifyInternalPackages(files, manifest) {
+function verifyInternalPackages(files) {
 	const versions = new Set();
-	for (const name of BUNDLED) {
+	for (const name of EMBEDDED_INTERNAL_PACKAGES) {
 		const prefix = `package/node_modules/${name}/`;
 		const internalManifestData = files.get(`${prefix}package.json`);
-		if (!internalManifestData) fail(`Missing bundled package manifest: ${name}`);
+		if (!internalManifestData) fail(`Missing embedded package manifest: ${name}`);
 		const internalManifest = readJsonBytes(internalManifestData, `${name}/package.json`);
-		if (internalManifest.name !== name) fail(`Bundled package manifest name mismatch: ${name}`);
-		if (!packageVersion(internalManifest.version)) fail(`Bundled package has invalid version: ${name}`);
+		if (internalManifest.name !== name) fail(`Embedded package manifest name mismatch: ${name}`);
+		if (!packageVersion(internalManifest.version)) fail(`Embedded package has invalid version: ${name}`);
 		versions.add(internalManifest.version);
 		const main = typeof internalManifest.main === "string" ? internalManifest.main.replace(/^\.\//u, "") : "dist/index.js";
-		if (!files.has(`${prefix}${main}`)) fail(`Bundled package main output is missing: ${name}/${main}`);
-		if (![...files.keys()].some((path) => path.startsWith(`${prefix}dist/`))) fail(`Bundled package build output is missing: ${name}`);
+		if (!files.has(`${prefix}${main}`)) fail(`Embedded package main output is missing: ${name}/${main}`);
+		if (![...files.keys()].some((path) => path.startsWith(`${prefix}dist/`))) fail(`Embedded package build output is missing: ${name}`);
 		for (const fieldName of ["dependencies", "optionalDependencies", "peerDependencies"]) {
 			for (const [dependency, range] of Object.entries(internalManifest[fieldName] || {})) {
 				if (dependency.startsWith("@earendil-works/")) {
-					if (!BUNDLED_SET.has(dependency)) fail(`Bundled package ${name} references unpublished package ${dependency}`);
+					if (!EMBEDDED_INTERNAL_SET.has(dependency)) fail(`Embedded package ${name} references unpublished package ${dependency}`);
 					const dependencyData = files.get(`package/node_modules/${dependency}/package.json`);
 					const dependencyManifest = dependencyData && readJsonBytes(dependencyData, `${dependency}/package.json`);
 					if (!dependencyManifest || !satisfies(dependencyManifest.version, range)) fail(`Bundled dependency range conflict: ${name} requires ${dependency}@${range}`);
@@ -420,19 +421,16 @@ function verifyInternalPackages(files, manifest) {
 			}
 		}
 	}
-	if (versions.size !== 1) fail(`Bundled package versions are inconsistent: ${[...versions].join(", ")}`);
+	if (versions.size !== 1) fail(`Embedded package versions are inconsistent: ${[...versions].join(", ")}`);
 	for (const [path, data] of files) {
 		if (!/\.(?:[cm]?js)$/u.test(path)) continue;
 		const text = data.toString("utf8");
 		const importMetadata = /(?:\bimport\s*(?:[^;]*?\sfrom\s*)?|\bexport\s+(?:[^;]*?\sfrom\s*)?|\brequire\s*\(|\bimport\s*\(|\bimport\.meta\.resolve\s*\()\s*["'`](@earendil-works\/[A-Za-z0-9._-]+)/gu;
 		for (const match of text.matchAll(importMetadata)) {
 			const name = match[1];
-			if (!BUNDLED_SET.has(name)) fail(`JavaScript import references unpublished package ${name} in ${path}`);
-			if (!files.has(`package/node_modules/${name}/package.json`)) fail(`JavaScript import cannot resolve bundled package ${name}`);
+			if (!EMBEDDED_INTERNAL_SET.has(name)) fail(`JavaScript import references unpublished package ${name} in ${path}`);
+			if (!files.has(`package/node_modules/${name}/package.json`)) fail(`JavaScript import cannot resolve embedded package ${name}`);
 		}
-	}
-	for (const name of BUNDLED) {
-		if (manifest.dependencies?.[name] === undefined) fail(`Bundled package is absent from the public dependency closure: ${name}`);
 	}
 }
 
@@ -483,9 +481,9 @@ async function installSmoke(tarball, manifest) {
 		if (/(?:prime-agent-(?:ai|core|tui)|@earendil-works\/pi-coding-agent)/iu.test(installLog)) fail("Isolated install attempted an unpublished branded package");
 		const installed = join(project, "node_modules", PUBLIC_NAME);
 		if (!lstatSync(installed).isDirectory()) fail("Installed public package is missing");
-		for (const name of BUNDLED) {
+		for (const name of EMBEDDED_INTERNAL_PACKAGES) {
 			const bundledPath = join(installed, "node_modules", ...name.split("/"));
-			if (!lstatSync(bundledPath).isDirectory()) fail(`Installed bundled package is missing: ${name}`);
+			if (!lstatSync(bundledPath).isDirectory()) fail(`Installed embedded package is missing: ${name}`);
 		}
 		const executable = join(project, "node_modules", ".bin", "millwright");
 		const help = spawnSync(executable, ["--help"], { cwd: project, env: { ...process.env, ...env, MILLWRIGHT_OFFLINE: "1" }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -522,7 +520,7 @@ async function main() {
 	const files = archive.files;
 	const manifest = readJsonBytes(requireFile(files, "package.json"), "package/package.json");
 	verifyPublicManifest(manifest, files);
-	verifyInternalPackages(files, manifest);
+	verifyInternalPackages(files);
 	const publicIdentity = verifyPublicIdentity(files);
 	for (const required of ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "UPSTREAM.md", "UPSTREAM.json", "LICENSES/Prime-Agent-MIT.txt", "LICENSES/OpenTUI-MIT.txt", "PROVENANCE.json"]) requireFile(files, required);
 	if (!/Apache License/iu.test(requireFile(files, "LICENSE").toString("utf8"))) fail("Apache license text is missing");
@@ -550,7 +548,7 @@ async function main() {
 	}));
 	const dependencies = Object.fromEntries(Object.entries(manifest.dependencies || {}).sort(([left], [right]) => Buffer.from(left).compare(Buffer.from(right))));
 	const optionalDependencies = Object.fromEntries(Object.entries(manifest.optionalDependencies || {}).sort(([left], [right]) => Buffer.from(left).compare(Buffer.from(right))));
-	const externalDependencies = Object.fromEntries(Object.entries(dependencies).filter(([name]) => !BUNDLED_SET.has(name)));
+	const externalDependencies = Object.fromEntries(Object.entries(dependencies).filter(([name]) => !EMBEDDED_INTERNAL_SET.has(name)));
 	const dependencyInventory = [
 		...Object.entries(dependencies).map(([name, range]) => ({ name, range, optional: false })),
 		...Object.entries(optionalDependencies).map(([name, range]) => ({ name, range, optional: true })),
@@ -570,7 +568,7 @@ async function main() {
 		sha256: createHash("sha256").update(bytes).digest("hex"),
 		integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
 		archive: { entryCount: archive.entries.length, unpackedSize: archive.entries.reduce((sum, entry) => sum + entry.size, 0) },
-		bundledDependencies: [...manifest.bundledDependencies],
+		embeddedInternalPackages: [...EMBEDDED_INTERNAL_PACKAGES],
 		dependencies,
 		externalDependencies,
 		optionalDependencies,

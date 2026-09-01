@@ -10,6 +10,11 @@ import { test } from "node:test";
 const root = resolve(new URL("../..", import.meta.url).pathname);
 const verifier = join(root, "scripts", "verify-millwright-package.mjs");
 const pinnedNpmArgs = ["--yes", "npm@10.9.2"];
+const embeddedInternalPackages = [
+	"@earendil-works/pi-agent-core",
+	"@earendil-works/pi-ai",
+	"@earendil-works/pi-tui",
+];
 
 function runNpm(args, cwd = root) {
 	return spawnSync("npx", [...pinnedNpmArgs, ...args], {
@@ -146,11 +151,11 @@ test("packs one frozen public artifact with closure and deterministic headers", 
 		assert.equal(manifest.name, "millwright-agent");
 		assert.equal(manifest.version, "0.0.3");
 		assert.deepEqual(manifest.bin, { millwright: "dist/bundle/cli.js" });
-		assert.deepEqual(manifest.bundledDependencies, [
-			"@earendil-works/pi-agent-core",
-			"@earendil-works/pi-ai",
-			"@earendil-works/pi-tui",
-		]);
+		assert.equal(manifest.bundledDependencies, undefined);
+		assert.equal(manifest.bundleDependencies, undefined);
+		for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+			for (const name of embeddedInternalPackages) assert.equal(manifest[field]?.[name], undefined, `${field} must not resolve ${name} through npm`);
+		}
 		assert.equal(manifest.engines.node, ">=22.8.0");
 		assert.equal(manifest.private, undefined);
 		for (const path of [
@@ -169,11 +174,11 @@ test("packs one frozen public artifact with closure and deterministic headers", 
 		assert.match(files.get("package/README.md").toString("utf8"), /^# Millwright$/mu);
 		assert.doesNotMatch(files.get("package/README.md").toString("utf8"), /Prime Agent CLI/u);
 		assert.match(files.get("package/CHANGELOG.md").toString("utf8"), /## 0\.0\.3 - Unreleased/u);
-		for (const name of manifest.bundledDependencies) {
+		for (const name of embeddedInternalPackages) {
 			assert.ok(files.has(`package/node_modules/${name}/package.json`));
 			assert.ok([...files.keys()].some((path) => path.startsWith(`package/node_modules/${name}/dist/`)));
 		}
-		const metadataText = JSON.stringify(manifest) + [...manifest.bundledDependencies].map((name) => files.get(`package/node_modules/${name}/package.json`).toString("utf8")).join("\n");
+		const metadataText = JSON.stringify(manifest) + embeddedInternalPackages.map((name) => files.get(`package/node_modules/${name}/package.json`).toString("utf8")).join("\n");
 		assert.doesNotMatch(metadataText, /(?:^|["' ])(?:file:|https?:\/\/(?:localhost|127\.0\.0\.1))/);
 		assert.doesNotMatch(JSON.stringify(manifest), /prime-agent-(?:ai|core|tui)|@earendil-works\/pi-coding-agent/);
 		const verified = runVerifier(tarball);

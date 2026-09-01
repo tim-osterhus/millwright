@@ -10,6 +10,11 @@ import { gunzipSync, gzipSync } from "node:zlib";
 const root = resolve(new URL("../..", import.meta.url).pathname);
 const verifier = join(root, "scripts", "verify-millwright-package.mjs");
 const pinnedNpmArgs = ["--yes", "npm@10.9.2"];
+const embeddedInternalPackages = [
+	"@earendil-works/pi-agent-core",
+	"@earendil-works/pi-ai",
+	"@earendil-works/pi-tui",
+];
 
 function runNpm(args, cwd = root) {
 	return spawnSync("npx", [...pinnedNpmArgs, ...args], {
@@ -110,10 +115,11 @@ test("verifier reports stable closure, provenance, licenses, and dependency inve
 		assert.equal(report.package.name, "millwright-agent");
 		assert.equal(report.package.version, "0.0.3");
 		assert.equal(report.provenance.schemaVersion, 1);
-		assert.equal(report.provenance.packerVersion, "millwright-release-packer/1");
+		assert.equal(report.provenance.packerVersion, "millwright-release-packer/2");
 		assert.match(report.provenance.trackedSourceManifestSha256, /^[0-9a-f]{64}$/);
 		assert.match(report.provenance.stagedInputManifestSha256, /^[0-9a-f]{64}$/);
-		assert.equal(report.bundledDependencies.length, 3);
+		assert.deepEqual(report.embeddedInternalPackages, embeddedInternalPackages);
+		assert.equal(report.bundledDependencies, undefined);
 		assert.ok(report.dependencies["@agentclientprotocol/sdk"]);
 		assert.equal(report.unpackedFiles.some(({ path }) => path.split("/").includes("__pycache__") || /\.py[co]$/u.test(path)), false);
 		assert.equal(report.installSmoke.status, "passed");
@@ -143,7 +149,10 @@ test("verifier rejects missing closure files, metadata, notices, versions, and c
 	try {
 		const tarball = await pack(output);
 		const cases = [
-			["missing bundled package", (values) => values.delete("package/node_modules/@earendil-works/pi-ai/package.json")],
+			["missing embedded package", (values) => values.delete("package/node_modules/@earendil-works/pi-ai/package.json")],
+			["recursive bundled dependency metadata", (values) => mutateJson(values, "package.json", (value) => { value.bundledDependencies = [...embeddedInternalPackages]; })],
+			["recursive bundle dependency alias", (values) => mutateJson(values, "package.json", (value) => { value.bundleDependencies = [...embeddedInternalPackages]; })],
+			["private registry dependency", (values) => mutateJson(values, "package.json", (value) => { value.dependencies["@earendil-works/pi-ai"] = "^0.7.2"; })],
 			["missing executable", (values) => values.delete("package/dist/bundle/cli.js")],
 			["missing notice", (values) => values.delete("package/NOTICE")],
 			["missing provenance", (values) => values.delete("package/PROVENANCE.json")],
