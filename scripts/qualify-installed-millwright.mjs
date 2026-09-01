@@ -8,6 +8,7 @@ import {
 	fstatSync,
 	lstatSync,
 	mkdirSync,
+	mkdtempSync,
 	openSync,
 	readdirSync,
 	readFileSync,
@@ -16,6 +17,8 @@ import {
 	renameSync,
 	rmSync,
 	statSync,
+	symlinkSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir, platform, release } from "node:os";
@@ -48,6 +51,8 @@ const PUBLIC_NAME = "millwright-agent";
 const PUBLIC_VERSION = "0.0.1";
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const TUI_TIMEOUT_MS = 30_000;
+const LAUNCHER_PRINT_COMMAND = "/goal status";
+const SHORT_ALIAS_PARENT = process.platform === "darwin" ? "/private/tmp" : "/tmp";
 const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const PROCESS_REGISTRY_ENV = "MILLWRIGHT_QUALIFICATION_PROCESS_REGISTRY";
 const PROCESS_REGISTRY_TOKEN_ENV = "MILLWRIGHT_QUALIFICATION_PROCESS_TOKEN";
@@ -142,6 +147,37 @@ function removeOwnedRoot(path, context) {
 		if (isWithin(canonicalForbidden, canonical) || isWithin(canonical, canonicalForbidden)) fail("owned cleanup root overlaps protected state");
 	}
 	rmSync(path, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+}
+
+function createTaskOwnedShortTmpAlias(temporaryRoot) {
+	const target = join(temporaryRoot, "daemon-tmp");
+	if (existsSync(target)) fail("daemon TMPDIR target must be fresh");
+	mkdirSync(target, { mode: 0o700 });
+	const aliasContainer = mkdtempSync(join(SHORT_ALIAS_PARENT, "mwq-"));
+	const alias = join(aliasContainer, "tmp");
+	try {
+		symlinkSync(target, alias, "dir");
+		const canonicalTemporaryRoot = realpathSync(temporaryRoot);
+		const canonicalTarget = realpathSync(target);
+		if (!isWithin(canonicalTemporaryRoot, canonicalTarget) || canonicalTarget === canonicalTemporaryRoot) fail("daemon TMPDIR target escaped the qualification temporary root");
+		if (realpathSync(alias) !== canonicalTarget) fail("daemon TMPDIR alias resolved to an unexpected target");
+		return { alias, aliasContainer, target };
+	} catch (error) {
+		try { unlinkSync(alias); } catch {}
+		try { rmSync(aliasContainer, { recursive: true, force: true }); } catch {}
+		try { rmSync(target, { recursive: true, force: true }); } catch {}
+		throw error;
+	}
+}
+
+function removeTaskOwnedShortTmpAlias(entry, temporaryRoot) {
+	const aliasInfo = lstatSync(entry.alias);
+	if (!aliasInfo.isSymbolicLink()) fail("daemon TMPDIR alias changed type");
+	const canonicalTemporaryRoot = realpathSync(temporaryRoot);
+	const canonicalTarget = realpathSync(entry.target);
+	if (!isWithin(canonicalTemporaryRoot, canonicalTarget) || realpathSync(entry.alias) !== canonicalTarget) fail("daemon TMPDIR alias target changed");
+	unlinkSync(entry.alias);
+	removeOwnedRoot(entry.aliasContainer, { sourceRoot, home: homedir() });
 }
 
 export function parseQualificationArgs(args, context = {}) {
@@ -462,7 +498,7 @@ export async function runBoundedCommand(command, args, options) {
 	};
 }
 
-function rootSet(temporaryRoot, id) {
+function rootSet(temporaryRoot, id, socketDirectory = temporaryRoot) {
 	const base = join(temporaryRoot, "cases", id);
 	const roots = {
 		base,
@@ -471,7 +507,7 @@ function rootSet(temporaryRoot, id) {
 		cache: join(base, "cache"),
 		agent: join(base, "home", ".millwright"),
 		session: join(base, "sessions"),
-		socket: join(temporaryRoot, `${sha256(id).slice(0, 2)}.s`),
+		socket: join(socketDirectory, `${sha256(id).slice(0, 2)}.s`),
 		python: join(base, "python"),
 	};
 	for (const path of [roots.project, roots.home, roots.cache, roots.agent, roots.session, dirname(roots.socket), roots.python]) {
@@ -702,19 +738,99 @@ async function installTarball(options, roots, processEnvironment) {
 	return { project, installedRoot, manifest, installResult: result };
 }
 
-function wrapper(path, kind) {
+function launcherClientHelperSource() {
+	return `const { spawn, spawnSync } = require("node:child_process");
+const { readFileSync, renameSync, writeFileSync } = require("node:fs");
+
+const markerPath = process.env.MWQ_LAUNCHER_MARKER;
+const [cli, ...args] = process.argv.slice(2);
+
+function processAlive(pid) {
+	if (!Number.isInteger(pid) || pid <= 0) return false;
+	try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+function processStartId(pid) {
+	if (!processAlive(pid)) return null;
+	try {
+		const stat = readFileSync("/proc/" + pid + "/stat", "utf8");
+		const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+		if (fields[19]) return "proc:" + fields[19];
+	} catch {}
+	const value = spawnSync("ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8", env: { ...process.env, TZ: "UTC", LC_ALL: "C" } });
+	return value.status === 0 && value.stdout.trim() ? "ps:" + value.stdout.trim() : null;
+}
+
+function processGroup(pid) {
+	const value = spawnSync("ps", ["-p", String(pid), "-o", "pgid="], { encoding: "utf8" });
+	const group = Number.parseInt(value.stdout?.trim() || "", 10);
+	return Number.isInteger(group) && group > 0 ? group : null;
+}
+
+function writeMarker(value) {
+	const temporary = markerPath + ".tmp-" + process.pid;
+	writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 });
+	renameSync(temporary, markerPath);
+}
+
+if (!markerPath || !cli) {
+	console.error("launcher client helper is missing its marker or CLI");
+	process.exitCode = 1;
+} else {
+	const child = spawn(cli, args, { env: process.env, stdio: "inherit" });
+	const identity = { pid: child.pid ?? null, startId: child.pid ? processStartId(child.pid) : null, processGroup: child.pid ? processGroup(child.pid) : null };
+	child.once("error", (error) => {
+		writeMarker({ ...identity, exitCode: null, signal: null, error: String(error) });
+		process.exitCode = 1;
+	});
+	child.once("exit", (code, signal) => {
+		writeMarker({ ...identity, exitCode: code, signal: signal ?? null });
+		process.exitCode = typeof code === "number" ? code : 1;
+	});
+}
+`;
+}
+
+function wrapper(path, kind, helperPath) {
 	const body = kind === "tui"
 		? '#!/bin/sh\nexec "$MWQ_CLI" --no-session\n'
-		: '#!/bin/sh\nexec "$MWQ_CLI" --print --offline --daemon-socket "$MWQ_SOCKET"\n';
+		: `#!/bin/sh\nexec "$MWQ_NODE" "$MWQ_LAUNCHER_HELPER" "$MWQ_CLI" --print --offline --daemon-socket "$MWQ_SOCKET" ${shellQuote(LAUNCHER_PRINT_COMMAND)}\n`;
 	writeFileSync(path, body, { mode: 0o700 });
+	if (kind === "launcher") writeFileSync(helperPath, launcherClientHelperSource(), { mode: 0o600 });
+}
+
+function launcherClientEvidence(markerPath, result) {
+	if (!existsSync(markerPath)) fail("Installed launcher did not write a completed client identity marker");
+	let marker;
+	try { marker = JSON.parse(readFileSync(markerPath, "utf8")); } catch { fail("Installed launcher client identity marker was invalid"); }
+	if (!Number.isInteger(marker?.pid) || marker.pid <= 0 || typeof marker.startId !== "string" || !marker.startId || !Number.isInteger(marker.processGroup) || marker.processGroup <= 0) {
+		fail(`Installed launcher client identity marker was incomplete: ${JSON.stringify(marker)}`);
+	}
+	const observed = result.cleanup.observedDescendants.find((identity) => identity.pid === marker.pid && identity.startId === marker.startId);
+	if (!observed || observed.processGroup !== marker.processGroup) fail("Installed launcher client marker was not bound to an observed process identity");
+	const signal = marker.signal ?? null;
+	if (marker.exitCode !== result.code || signal !== (result.signal ?? null)) fail("Installed launcher client exit evidence did not match the PTY command result");
+	if (marker.exitCode !== 0 || signal !== null) fail(`Installed launcher client did not exit successfully: ${JSON.stringify({ exitCode: marker.exitCode, signal })}`);
+	if (identityAlive(marker)) fail("Installed launcher client remained alive after its PTY parent exited");
+	return { pid: marker.pid, startId: marker.startId, processGroup: marker.processGroup, exitCode: marker.exitCode, signal };
 }
 
 async function runPty(cli, roots, environment, kind) {
 	const path = join(roots.base, `${kind}-wrapper.sh`);
-	wrapper(path, kind);
+	const helperPath = join(roots.base, `${kind}-launcher-helper.cjs`);
+	const markerPath = join(roots.base, "launcher-client.json");
+	wrapper(path, kind, helperPath);
 	const invocation = ptyInvocation(process.platform, path);
-	const env = { ...environment, MWQ_CLI: cli, ...(kind === "tui" ? { MILLWRIGHT_STARTUP_BENCHMARK: "1", MILLWRIGHT_TIMING: "1" } : { MWQ_SOCKET: roots.socket }) };
-	return runBoundedCommand(invocation.command, invocation.args, { cwd: roots.project, env, timeoutMs: kind === "tui" ? TUI_TIMEOUT_MS : 20_000, retainDescendants: kind === "launcher" });
+	const env = {
+		...environment,
+		MWQ_CLI: cli,
+		...(kind === "tui"
+			? { MILLWRIGHT_STARTUP_BENCHMARK: "1", MILLWRIGHT_TIMING: "1" }
+			: { MWQ_SOCKET: roots.socket, MWQ_NODE: process.execPath, MWQ_LAUNCHER_HELPER: helperPath, MWQ_LAUNCHER_MARKER: markerPath }),
+	};
+	const result = await runBoundedCommand(invocation.command, invocation.args, { cwd: roots.project, env, timeoutMs: kind === "tui" ? TUI_TIMEOUT_MS : 20_000, retainDescendants: kind === "launcher" });
+	if (kind === "launcher" && !result.timedOut && result.code === 0) launcherClientEvidence(markerPath, result);
+	return result;
 }
 
 function socketExists(path) {
@@ -845,11 +961,15 @@ function assertRegisteredTransition(owner, message) {
 }
 
 async function runDaemonCases(cli, options, tracked) {
+	const daemonTemporary = createTaskOwnedShortTmpAlias(options.temporaryRoot);
+	tracked.daemonTemporaryAliases.add(daemonTemporary);
+	const daemonTemporaryRoot = daemonTemporary.alias;
+	const daemonSocketDirectory = join(daemonTemporaryRoot, `millwright-${typeof process.getuid === "function" ? process.getuid() : "user"}`);
 	const cases = [];
 	for (const id of DAEMON_CASE_IDS) {
-		const roots = rootSet(options.temporaryRoot, `daemon-${id}`);
+		const roots = rootSet(options.temporaryRoot, `daemon-${id}`, daemonSocketDirectory);
 		const legacy = createLegacySentinels(roots);
-		const env = sanitizeEnvironment(process.env, roots, { ...(options.daemonEnvironment ?? {}), ...options.processEnvironment });
+		const env = sanitizeEnvironment(process.env, roots, { ...(options.daemonEnvironment ?? {}), ...options.processEnvironment, TMPDIR: daemonTemporaryRoot });
 		if (socketExists(roots.socket)) fail(`Daemon case socket was not fresh: ${id}`);
 		tracked.sockets.add(roots.socket);
 		if (id === "startup-validation-failure") {
@@ -892,7 +1012,13 @@ async function runDaemonCases(cli, options, tracked) {
 		}
 		const managed = managedSpawn(cli, ["--mode", "daemon", "--daemon-socket", roots.socket], { cwd: roots.project, env });
 		tracked.children.add(managed);
-		const observed = await waitForCaseDaemon(cli, roots, env, managed);
+		let listener;
+		const observed = await waitForCaseDaemon(cli, roots, env, managed, (identity) => {
+			if (!listener) {
+				listener = identity;
+				tracked.launcherDaemons.add(identity);
+			}
+		});
 		const daemon = observed.identity;
 		const before = ownedDaemonDescendants(managed, daemon, managed.identity);
 		if (id === "clean-stop") {
@@ -1142,7 +1268,7 @@ function atomicReport(path, report) {
 
 async function qualify(options, substitutions = {}) {
 	const records = [];
-	const tracked = { children: new Set(), launcherDaemons: new Set(), sockets: new Set() };
+	const tracked = { children: new Set(), launcherDaemons: new Set(), sockets: new Set(), daemonTemporaryAliases: new Set() };
 	const secrets = secretValues(process.env);
 	const redaction = { secrets, paths: [[options.temporaryRoot, "$TEMP"], [options.results, "$RESULTS"], [dirname(options.temporaryRoot), "$OUTER"], [homedir(), "$HOME"], [sourceRoot, "$SOURCE"]] };
 	let installed;
@@ -1240,6 +1366,7 @@ async function qualify(options, substitutions = {}) {
 		for (const identity of tracked.launcherDaemons) await stopOwnedIdentity(identity);
 		if (processRegistry) for (const identity of registeredIdentities(processRegistry).filter(identityAlive)) await stopOwnedIdentity(identity);
 		for (const socket of tracked.sockets) rmSync(socket, { force: true });
+		for (const alias of tracked.daemonTemporaryAliases) removeTaskOwnedShortTmpAlias(alias, options.temporaryRoot);
 		removed = removedBytes(options.temporaryRoot);
 		removeOwnedRoot(options.temporaryRoot, { sourceRoot, home: homedir() });
 		const residualPids = [
@@ -1248,8 +1375,9 @@ async function qualify(options, substitutions = {}) {
 			...(processRegistry ? [...processRegistry.identities.values()].filter(identityAlive).map(({ pid }) => pid) : []),
 		];
 		const residualSockets = [...tracked.sockets].filter(existsSync).map(basename);
+		const residualAliases = [...tracked.daemonTemporaryAliases].filter(({ aliasContainer }) => existsSync(aliasContainer)).map(() => "$DAEMON_TMP_ALIAS");
 		records.push(await record("cleanup", async () => {
-			if (existsSync(options.temporaryRoot) || residualPids.length || residualSockets.length) fail("Driver cleanup left residual resources");
+			if (existsSync(options.temporaryRoot) || residualPids.length || residualSockets.length || residualAliases.length) fail("Driver cleanup left residual resources");
 			return { details: { temporaryRootRemoved: true, removedRoots: ["$TEMP"], reclaimedBytes: removed, residualPids, residualSockets }, stdout: "", stderr: "", exitCode: null };
 		}, redaction));
 		if (processRegistry) processRegistries.delete(processRegistry.registryPath);

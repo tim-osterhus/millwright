@@ -43,7 +43,15 @@ const value = (name) => { const index = args.indexOf(name); return index === -1 
 const agentDir = process.env.MILLWRIGHT_CODING_AGENT_DIR;
 const registry = agentDir && join(agentDir, "fixture-daemon.json");
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-const startId = (pid) => { const value = spawnSync("ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" }); return value.status === 0 && value.stdout.trim() ? "ps:" + value.stdout.trim() : undefined; };
+const startId = (pid) => {
+	try {
+		const stat = readFileSync("/proc/" + pid + "/stat", "utf8");
+		const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+		if (fields[19]) return "proc:" + fields[19];
+	} catch {}
+	const value = spawnSync("ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8" });
+	return value.status === 0 && value.stdout.trim() ? "ps:" + value.stdout.trim() : undefined;
+};
 const readRegistry = () => { try { return JSON.parse(readFileSync(registry, "utf8")); } catch { return undefined; } };
 const processGroup = (pid) => { const value = spawnSync("ps", ["-p", String(pid), "-o", "pgid="], { encoding: "utf8" }); return Number.parseInt(value.stdout.trim(), 10); };
 
@@ -55,6 +63,22 @@ if (args[0] === "--mode" && args[1] === "daemon") {
 	if (!socketPath || !agentDir || agentDir.split(/[\\/]/u).some((part) => part === ".prime" || part === ".millrace-cli")) {
 		console.error("unsafe startup state root");
 		process.exit(2);
+	}
+	if (forcedFailure === "daemon-listener-descendant" && process.env.MWQ_LISTENER_CHILD !== "1") {
+		const childEnvironment = { ...process.env, MWQ_LISTENER_CHILD: "1" };
+		delete childEnvironment.NODE_OPTIONS;
+		delete childEnvironment.MILLWRIGHT_QUALIFICATION_PROCESS_REGISTRY;
+		delete childEnvironment.MILLWRIGHT_QUALIFICATION_PROCESS_TOKEN;
+		delete childEnvironment.MILLWRIGHT_QUALIFICATION_PROCESS_SCOPE;
+		const child = spawn(process.execPath, [process.argv[1], ...args], {
+			detached: true, env: childEnvironment, stdio: "ignore",
+		});
+		if (process.env.MILLWRIGHT_QUALIFICATION_PROCESS_REGISTRY) {
+			writeFileSync(process.env.MILLWRIGHT_QUALIFICATION_PROCESS_REGISTRY, "");
+		}
+		child.unref();
+		setInterval(() => {}, 1000);
+		await new Promise(() => {});
 	}
 	mkdirSync(dirname(socketPath), { recursive: true });
 	mkdirSync(agentDir, { recursive: true });
@@ -73,10 +97,13 @@ if (args[0] === "--mode" && args[1] === "daemon") {
 		mkdirSync(join(agentDir, "logs"), { recursive: true });
 		writeFileSync(join(agentDir, "logs", "daemon.log"), "Millwright fixture daemon diagnostic\\n");
 		writeFileSync(registry, JSON.stringify({ pid: process.pid, processStartId: startId(process.pid), socketPath, launched }));
-		if (launched && forcedFailure === "launcher-cleanup") writeFileSync(join(process.env.TMPDIR, "millwright-fixture-launcher.pid"), String(process.pid));
+		if (forcedFailure === "daemon-listener-descendant") {
+			writeFileSync(process.env.MILLWRIGHT_QUALIFICATION_DAEMON_MARKER, JSON.stringify({ pid: process.pid, startId: startId(process.pid), processGroup: processGroup(process.pid), socketPath }));
+		}
+		if (launched && forcedFailure === "launcher-cleanup") writeFileSync(process.env.MILLWRIGHT_QUALIFICATION_LAUNCHER_MARKER ?? join(process.env.TMPDIR, "millwright-fixture-launcher.pid"), String(process.pid));
 		if (forcedFailure === "daemon-detached-worker") {
 			const worker = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, env: process.env, stdio: "ignore" });
-			writeFileSync(join(process.env.TMPDIR, "millwright-fixture-worker.json"), JSON.stringify({ pid: worker.pid, startId: startId(worker.pid), processGroup: processGroup(worker.pid) }));
+			writeFileSync(process.env.MILLWRIGHT_QUALIFICATION_WORKER_MARKER ?? join(process.env.TMPDIR, "millwright-fixture-worker.json"), JSON.stringify({ pid: worker.pid, startId: startId(worker.pid), processGroup: processGroup(worker.pid), socketPath, tmpdir: process.env.TMPDIR }));
 			worker.unref();
 		}
 	});
@@ -94,6 +121,27 @@ if (args[0] === "--mode" && args[1] === "daemon") {
 	const deadline = Date.now() + 3000;
 	while (record && alive(record.pid) && Date.now() < deadline) await new Promise((done) => setTimeout(done, 20));
 	console.log(JSON.stringify({ stopped: record ? [{ socketPath: record.socketPath }] : [], failed: [] }));
+} else if (forcedFailure === "launcher-status" && process.env.MWQ_LAUNCHER_MARKER) {
+	const marker = process.env.MILLWRIGHT_QUALIFICATION_LAUNCHER_MARKER;
+	const identity = { pid: process.pid, startId: startId(process.pid), processGroup: processGroup(process.pid), tmpdir: process.env.TMPDIR };
+	const command = args.at(-1);
+	if (!marker) {
+		console.error("fixture launcher marker output is missing");
+		process.exit(6);
+	}
+	if (!args.includes("--print") || command !== "/goal status") {
+		writeFileSync(marker, JSON.stringify({ ...identity, command, rejectedEmptyPrint: args.includes("--print") && command !== "/goal status" }));
+		console.error("fixture launcher requires explicit /goal status");
+		process.exit(4);
+	}
+	const socketPath = value("--daemon-socket");
+	const child = spawn(process.execPath, [process.argv[1], "--mode", "daemon", "--daemon-socket", socketPath], {
+		detached: true, env: { ...process.env, MWQ_LAUNCHER_CHILD: "1" }, stdio: "ignore",
+	});
+	child.unref();
+	writeFileSync(marker, JSON.stringify({ ...identity, command, exitCode: 0 }));
+	console.log("fixture public print command completed");
+	process.exit(0);
 } else if (process.env.MILLWRIGHT_QUALIFICATION_FIXTURE_CLIENT === "1") {
 	const socketPath = value("--daemon-socket");
 	const child = spawn(process.execPath, [process.argv[1], "--mode", "daemon", "--daemon-socket", socketPath], {
@@ -136,11 +184,11 @@ async function qualifyInstalledStateForTest({ roots, installedRoot }, forceFailu
 	return result;
 }
 
-function testSubstitutions(forceFailure) {
+function testSubstitutions(forceFailure, daemonEnvironment = {}) {
 	return {
 		qualifyInstalledState: (input) => qualifyInstalledStateForTest(input, forceFailure),
 		kernelProbe: async () => ({ details: { bootstrap: "dist/core/kernel/bootstrap.js", runtime: "dist/prime-agent-runtime", importBelowInstalledRuntime: true, sourcePythonPath: false }, stdout: "fixture rlm", stderr: "", exitCode: 0 }),
-		daemonEnvironment: { MILLWRIGHT_QUALIFICATION_FIXTURE_CLIENT: "1" },
+		daemonEnvironment: { MILLWRIGHT_QUALIFICATION_FIXTURE_CLIENT: "1", ...daemonEnvironment },
 		allowSyntheticIdentity: true,
 		identityFailure: forceFailure === "identity",
 	};
@@ -207,7 +255,7 @@ function runCliDriver(tarball, outer, env = {}) {
 	return { result, temporaryRoot, results, reportPath: join(results, "installed-qualification.json") };
 }
 
-async function runDriver(tarball, outer, environment = {}) {
+async function runDriver(tarball, outer, environment = {}, daemonEnvironment = {}) {
 	const temporaryRoot = join(outer, "driver-temp");
 	const results = join(outer, "driver-results");
 	const options = parseQualificationArgs([
@@ -221,7 +269,7 @@ async function runDriver(tarball, outer, environment = {}) {
 	const previous = Object.fromEntries(Object.keys(environment).map((name) => [name, process.env[name]]));
 	try {
 		Object.assign(process.env, environment);
-		report = await qualifyInstalledArtifactForTest(options, testSubstitutions(fixtureOptions.get(tarball)?.forceFailure));
+		report = await qualifyInstalledArtifactForTest(options, testSubstitutions(fixtureOptions.get(tarball)?.forceFailure, daemonEnvironment));
 	} catch (caught) {
 		error = caught;
 	} finally {
@@ -416,7 +464,7 @@ test("checks a registered detached daemon worker during stop and reaps its exact
 	let worker;
 	try {
 		const tarball = createFixtureTarball(outer, { forceFailure: "daemon-detached-worker" });
-		const { result, reportPath } = await runDriver(tarball, outer, { TMPDIR: outer });
+		const { result, reportPath } = await runDriver(tarball, outer, { TMPDIR: outer }, { MILLWRIGHT_QUALIFICATION_WORKER_MARKER: marker });
 		worker = JSON.parse(readFileSync(marker, "utf8"));
 		assert.notEqual(result.status, 0);
 		assert.equal(Number.isInteger(worker.pid) && worker.pid > 0, true);
@@ -431,6 +479,54 @@ test("checks a registered detached daemon worker during stop and reaps its exact
 		assert.equal(report.records.find(({ id }) => id === "cleanup").status, "passed");
 	} finally {
 		stopFixtureProcess(worker?.pid);
+		rmSync(outer, { recursive: true, force: true });
+	}
+});
+
+test("uses a short task-owned TMPDIR for daemon cases instead of inherited ambient TMPDIR", async () => {
+	const outer = tempRoot("millwright-c005-daemon-tmp-");
+	const ambient = join(outer, "ambient", "a".repeat(220));
+	const ambientMarker = join(ambient, "millwright-fixture-worker.json");
+	const workerMarker = join(outer, "millwright-fixture-worker.json");
+	mkdirSync(ambient, { recursive: true });
+	try {
+		const tarball = createFixtureTarball(outer, { forceFailure: "daemon-detached-worker" });
+		const { result, reportPath } = await runDriver(tarball, outer, { TMPDIR: ambient }, { MILLWRIGHT_QUALIFICATION_WORKER_MARKER: workerMarker });
+		assert.equal(ambient.length > 200, true);
+		assert.notEqual(result.status, 0);
+		assert.equal(existsSync(ambientMarker), false, `daemon inherited ambient TMPDIR: ${ambient}`);
+		const worker = JSON.parse(readFileSync(workerMarker, "utf8"));
+		const daemonSocketDir = join(worker.tmpdir, `millwright-${typeof process.getuid === "function" ? process.getuid() : "user"}`);
+		assert.equal(dirname(worker.socketPath), daemonSocketDir);
+		const report = JSON.parse(readFileSync(reportPath, "utf8"));
+		assert.equal(report.records.find(({ id }) => id === "cleanup").status, "passed");
+	} finally {
+		rmSync(outer, { recursive: true, force: true });
+	}
+});
+
+test("runs an explicit provider-free status command through the installed public PTY launcher", async () => {
+	const outer = tempRoot("millwright-c005-launcher-status-");
+	const marker = join(outer, "launcher-client.json");
+	try {
+		const tarball = createFixtureTarball(outer, { forceFailure: "launcher-status" });
+		const { result, reportPath } = await runDriver(tarball, outer, {}, { MILLWRIGHT_QUALIFICATION_LAUNCHER_MARKER: marker });
+		assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${existsSync(reportPath) ? readFileSync(reportPath, "utf8") : "report missing"}`);
+		const markerRecord = JSON.parse(readFileSync(marker, "utf8"));
+		assert.equal(markerRecord.rejectedEmptyPrint, undefined);
+		assert.equal(markerRecord.command, "/goal status");
+		assert.equal(markerRecord.exitCode, 0);
+		assert.equal(existsSync(markerRecord.tmpdir), false);
+		assert.equal(existsSync(dirname(markerRecord.tmpdir)), false);
+		const report = JSON.parse(readFileSync(reportPath, "utf8"));
+		const cleanup = report.records.find(({ id }) => id === "cleanup");
+		assert.deepEqual(Object.keys(cleanup.details).sort(), ["reclaimedBytes", "removedRoots", "residualPids", "residualSockets", "temporaryRootRemoved"]);
+		assert.deepEqual(cleanup.details.removedRoots, ["$TEMP"]);
+		const daemonCases = report.records.find(({ id }) => id === "daemonLifecycle").details.cases;
+		for (const daemonCase of daemonCases) {
+			assert.deepEqual(Object.keys(daemonCase).sort(), ["cleanup", "daemon", "descendantIdentitiesAfter", "descendantIdentitiesBefore", "id", "launcher", "observedExit", "observedSignal", "processGroup", "socketPath", "socketStateAfter", "socketStateBefore"]);
+		}
+	} finally {
 		rmSync(outer, { recursive: true, force: true });
 	}
 });
@@ -610,7 +706,7 @@ test("reaps the exact launcher daemon identity when strict status validation fai
 	let daemonPid;
 	try {
 		const tarball = createFixtureTarball(outer, { forceFailure: "launcher-cleanup" });
-		const { result, reportPath } = await runDriver(tarball, outer, { TMPDIR: outer });
+		const { result, reportPath } = await runDriver(tarball, outer, { TMPDIR: outer }, { MILLWRIGHT_QUALIFICATION_LAUNCHER_MARKER: marker });
 		daemonPid = Number.parseInt(readFileSync(marker, "utf8"), 10);
 		assert.notEqual(result.status, 0);
 		const report = JSON.parse(readFileSync(reportPath, "utf8"));
@@ -619,6 +715,25 @@ test("reaps the exact launcher daemon identity when strict status validation fai
 		assert.equal(report.records.find(({ id }) => id === "cleanup").status, "passed");
 	} finally {
 		stopFixtureProcess(daemonPid);
+		rmSync(outer, { recursive: true, force: true });
+	}
+});
+
+test("reaps the exact managed listener identity when status rejects a descendant daemon", async () => {
+	const outer = tempRoot();
+	const marker = join(outer, "millwright-fixture-daemon.json");
+	let daemon;
+	try {
+		const tarball = createFixtureTarball(outer, { forceFailure: "daemon-listener-descendant" });
+		const { result, reportPath } = await runDriver(tarball, outer, {}, { MILLWRIGHT_QUALIFICATION_DAEMON_MARKER: marker });
+		daemon = JSON.parse(readFileSync(marker, "utf8"));
+		assert.notEqual(result.status, 0);
+		const report = JSON.parse(readFileSync(reportPath, "utf8"));
+		assert.equal(report.records.find(({ id }) => id === "daemonLifecycle").status, "failed");
+		assert.equal(processAlive(daemon.pid), false, `managed listener ${daemon.pid} survived driver cleanup`);
+		assert.equal(report.records.find(({ id }) => id === "cleanup").status, "passed");
+	} finally {
+		stopFixtureProcess(daemon?.pid);
 		rmSync(outer, { recursive: true, force: true });
 	}
 });
@@ -635,7 +750,9 @@ test("writes failed evidence atomically and still cleans roots, sockets, and pro
 		assert.equal(report.records.find(({ id }) => id === "identity").status, "failed");
 		assert.equal(report.records.find(({ id }) => id === "cleanup").status, "passed");
 		assert.equal(report.records.find(({ id }) => id === "cleanup").details.residualPids.length, 0);
-		assert.equal(report.records.find(({ id }) => id === "cleanup").details.residualSockets.length, 0);
+		const cleanup = report.records.find(({ id }) => id === "cleanup");
+		assert.equal(cleanup.details.residualSockets.length, 0);
+		assert.deepEqual(Object.keys(cleanup.details).sort(), ["reclaimedBytes", "removedRoots", "residualPids", "residualSockets", "temporaryRootRemoved"]);
 	} finally {
 		rmSync(outer, { recursive: true, force: true });
 	}

@@ -1,12 +1,19 @@
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync, watch, writeFileSync } from "node:fs";
+import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import lockfile from "proper-lockfile";
 import { APP_NAME } from "../../src/config.js";
-import { isDaemonCatalogProcess, runDaemonCatalogProcess } from "../../src/modes/daemon/daemon-catalog-process.js";
+import {
+	DaemonCatalogClient,
+	isDaemonCatalogProcess,
+	runDaemonCatalogProcess,
+} from "../../src/modes/daemon/daemon-catalog-process.js";
 import { DaemonSupervisor } from "../../src/modes/daemon/daemon-supervisor.js";
 import { acquireDaemonSupervisorOwnership } from "../../src/modes/daemon/daemon-supervisor-ownership.js";
 
-type ControlMessage = { type: "go" | "probe" | "release" | "release_runtime" | "shutdown" | "cleanup" };
+type ControlMessage = {
+	type: "go" | "probe" | "release" | "release_runtime" | "shutdown" | "cleanup" | "catalog_stop";
+};
 
 function requiredEnvironment(name: string): string {
 	const value = process.env[name];
@@ -101,6 +108,68 @@ async function releaseSupervisorRuntime(supervisor: DaemonSupervisor): Promise<v
 	send({ type: "runtime_released" });
 }
 
+async function runCatalogClient(): Promise<never> {
+	process.argv[1] = fileURLToPath(import.meta.url);
+	const catalog = new DaemonCatalogClient(() => undefined);
+	await catalog.start();
+	send({ type: "catalog_ready" });
+	await waitForControl("catalog_stop");
+	const child = Reflect.get(catalog, "child") as
+		| { exitCode: number | null; signalCode: NodeJS.Signals | null }
+		| undefined;
+	await catalog.stop();
+	send({
+		type: "catalog_stop_resolved",
+		exitCode: child?.exitCode ?? null,
+		signalCode: child?.signalCode ?? null,
+	});
+	await waitForControl("shutdown");
+	process.exit(0);
+}
+
+function isShutdownCatalogRequest(value: unknown): value is { type: "request"; id: string; command: "shutdown" } {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	const request = value as { type?: unknown; id?: unknown; command?: unknown };
+	return request.type === "request" && typeof request.id === "string" && request.command === "shutdown";
+}
+
+async function runCatalogLifecycleProcess(): Promise<never> {
+	const shutdownAckPath = requiredEnvironment("ENG_4600_CATALOG_SHUTDOWN_ACK_PATH");
+	const disconnectPath = requiredEnvironment("ENG_4600_CATALOG_DISCONNECT_PATH");
+	const releasePath = requiredEnvironment("ENG_4600_CATALOG_RELEASE_PATH");
+	let watcher: ReturnType<typeof watch> | undefined;
+	const released = new Promise<void>((resolveRelease) => {
+		const release = () => {
+			watcher?.close();
+			resolveRelease();
+		};
+		if (existsSync(releasePath)) {
+			release();
+			return;
+		}
+		watcher = watch(dirname(releasePath), (_event, filename) => {
+			if (filename?.toString() === basename(releasePath) && existsSync(releasePath)) {
+				release();
+			}
+		});
+	});
+	process.on("disconnect", () => {
+		writeFileSync(disconnectPath, "disconnected\n");
+		void released.then(() => process.exit(0));
+	});
+	process.on("message", (value: unknown) => {
+		if (!isShutdownCatalogRequest(value)) {
+			return;
+		}
+		writeFileSync(shutdownAckPath, "shutdown acknowledged\n");
+		send({ type: "response", id: value.id, success: true });
+	});
+	send({ type: "ready" });
+	return new Promise(() => {});
+}
+
 async function runLegacyCleanup(): Promise<never> {
 	const socketPath = requiredEnvironment("ENG_4600_SOCKET_PATH");
 	send({ type: "ready" });
@@ -135,6 +204,9 @@ async function runLegacyCleanup(): Promise<never> {
 
 async function main(): Promise<never> {
 	if (isDaemonCatalogProcess()) {
+		if (process.env.ENG_4600_CATALOG_LIFECYCLE === "1") {
+			return runCatalogLifecycleProcess();
+		}
 		return runDaemonCatalogProcess();
 	}
 	send({ type: "booted" });
@@ -153,6 +225,9 @@ async function main(): Promise<never> {
 	}
 	if (mode === "supervisor") {
 		return runSupervisor();
+	}
+	if (mode === "catalog_client") {
+		return runCatalogClient();
 	}
 	throw new Error(`Unknown fixture mode: ${mode}`);
 }

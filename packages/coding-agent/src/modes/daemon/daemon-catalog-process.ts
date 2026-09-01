@@ -385,9 +385,20 @@ export class DaemonCatalogClient {
 		if (!child) {
 			return;
 		}
+		const exited = new Promise<void>((resolveExit) => {
+			child.once("exit", () => resolveExit());
+			if (child.exitCode !== null || child.signalCode !== null) {
+				resolveExit();
+			}
+		});
 		await this.request({ type: "request", id: randomUUID(), command: "shutdown" }).catch(() => undefined);
-		child.disconnect();
-		this.child = undefined;
+		if (child.connected) {
+			child.disconnect();
+		}
+		await exited;
+		if (this.child === child) {
+			this.child = undefined;
+		}
 	}
 
 	private async spawnCatalog(): Promise<void> {

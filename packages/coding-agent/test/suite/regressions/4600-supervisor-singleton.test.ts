@@ -31,7 +31,9 @@ type FixtureMessage =
 	| { type: "failed"; error: string }
 	| { type: "probe_ack" }
 	| { type: "owner_released" }
-	| { type: "cleanup_complete"; skipped: boolean };
+	| { type: "cleanup_complete"; skipped: boolean }
+	| { type: "catalog_ready" }
+	| { type: "catalog_stop_resolved"; exitCode: number | null; signalCode: NodeJS.Signals | null };
 
 interface OwnerRecord {
 	version: 1;
@@ -124,7 +126,7 @@ function dispatchMessage(handle: FixtureHandle, message: FixtureMessage): void {
 }
 
 function spawnFixture(
-	mode: "legacy_cleanup" | "owner" | "supervisor",
+	mode: "legacy_cleanup" | "owner" | "supervisor" | "catalog_client",
 	paths: { agentDir: string; descriptorDir: string; registryDir: string; socketPath: string },
 	options: { extraEnv?: NodeJS.ProcessEnv; generation?: string } = {},
 ): FixtureHandle {
@@ -250,7 +252,7 @@ function waitForExit(handle: FixtureHandle, timeoutMs = 20_000): Promise<void> {
 	});
 }
 
-function send(handle: FixtureHandle, type: "cleanup" | "go" | "probe" | "release" | "shutdown"): void {
+function send(handle: FixtureHandle, type: "catalog_stop" | "cleanup" | "go" | "probe" | "release" | "shutdown"): void {
 	handle.child.send({ type });
 }
 
@@ -562,6 +564,78 @@ async function stopSupervisor(handle: FixtureHandle, socketPath: string): Promis
 }
 
 describe("ENG-4600 daemon supervisor ownership", () => {
+	it("waits for the daemon catalog child to exit before stop resolves", async () => {
+		if (process.platform === "win32") {
+			return;
+		}
+		const paths = await createPaths();
+		const shutdownAckPath = join(paths.agentDir, "catalog-shutdown-ack");
+		const disconnectPath = join(paths.agentDir, "catalog-disconnected");
+		const releasePath = join(paths.agentDir, "catalog-release");
+		let releaseBarrierOpened = false;
+		let catalog: FixtureHandle | undefined;
+		let catalogGoSent = false;
+		let catalogStopRequested = false;
+		let catalogStopResolved = false;
+		let catalogShutdownRequested = false;
+		try {
+			catalog = spawnFixture("catalog_client", paths, {
+				extraEnv: {
+					ENG_4600_CATALOG_LIFECYCLE: "1",
+					ENG_4600_CATALOG_SHUTDOWN_ACK_PATH: shutdownAckPath,
+					ENG_4600_CATALOG_DISCONNECT_PATH: disconnectPath,
+					ENG_4600_CATALOG_RELEASE_PATH: releasePath,
+				},
+			});
+			await waitForType(catalog, "booted");
+			send(catalog, "go");
+			catalogGoSent = true;
+			await waitForType(catalog, "catalog_ready");
+			send(catalog, "catalog_stop");
+			catalogStopRequested = true;
+			await waitForPath(shutdownAckPath);
+			await waitForPath(disconnectPath);
+			if (!releaseBarrierOpened) {
+				releaseBarrierOpened = true;
+				writeFileSync(releasePath, "release\n");
+			}
+			const stopped = await waitForType(catalog, "catalog_stop_resolved");
+			catalogStopResolved = true;
+			expect(stopped.exitCode !== null || stopped.signalCode !== null).toBe(true);
+			send(catalog, "shutdown");
+			catalogShutdownRequested = true;
+			await waitForExit(catalog);
+		} finally {
+			if (!releaseBarrierOpened) {
+				releaseBarrierOpened = true;
+				writeFileSync(releasePath, "release\n");
+			}
+			if (catalog && catalogGoSent && !catalogStopRequested) {
+				try {
+					send(catalog, "catalog_stop");
+					catalogStopRequested = true;
+				} catch {
+					// The parent fixture already exited; afterEach owns the remaining handle cleanup.
+				}
+			}
+			if (catalog && catalogStopRequested && !catalogStopResolved) {
+				await waitForType(catalog, "catalog_stop_resolved");
+				catalogStopResolved = true;
+			}
+			if (catalog && catalogStopResolved && !catalogShutdownRequested) {
+				try {
+					send(catalog, "shutdown");
+					catalogShutdownRequested = true;
+				} catch {
+					// The parent fixture already exited; afterEach owns the remaining handle cleanup.
+				}
+			}
+			if (catalog && catalogShutdownRequested) {
+				await waitForExit(catalog);
+			}
+		}
+	}, 30_000);
+
 	it("elects one listener while 16 contenders atomically reclaim a stale owner", async () => {
 		const paths = await createPaths();
 		const stale = spawnFixture("owner", paths, { generation: "stale-owner" });
