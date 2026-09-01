@@ -1,6 +1,6 @@
 # Releasing Millwright
 
-Millwright `0.0.1` uses a qualification-first, tag-driven release. No local
+Millwright `0.0.2` uses a qualification-first, tag-driven release. No local
 script bumps versions, commits, tags, pushes, or publishes. Publication accepts
 only the artifact qualified by B004 and recorded in the immutable
 `RELEASE.json` manifest.
@@ -19,9 +19,9 @@ only the artifact qualified by B004 and recorded in the immutable
   `tim-osterhus/millwright`, `publish-npm.yml`, environment `npm-production`,
   and direct `npm publish` only.
 - Package publishing requires MFA and disallows automation-token publication.
-- The release version remains `0.0.1`, the package remains
+- The release version remains `0.0.2`, the package remains
   `millwright-agent`, and the artifact remains
-  `millwright-agent-0.0.1.tgz`.
+  `millwright-agent-0.0.2.tgz`.
 
 ### Completed registry bootstrap state
 
@@ -30,7 +30,7 @@ the npm namespace before trusted-publisher configuration. The package contains
 no executable or runtime code. npm created both `bootstrap` and `latest`
 pointers to `0.0.0` during the first publication and rejected authenticated
 removal of `latest`. The operator authorized that pointer only until the
-functional `0.0.1` release.
+functional `0.0.2` release.
 
 Version `0.0.0` is deprecated with this warning:
 
@@ -44,10 +44,12 @@ Before B004 creates a release manifest or tag, verify all of these conditions:
 - `bootstrap` and transient `latest` both point to `0.0.0`.
 - The deprecation warning matches the text above.
 - The trusted publisher and `npm-production` protection match the prerequisites.
-- `0.0.1` does not exist.
+- `0.0.1` and `0.0.2` do not exist in npm.
+- The remote annotated `v0.0.1` tag remains immutable. Its failed publication
+  is historical evidence and is not retried or moved.
 
 Stop when any condition differs. Do not unpublish `0.0.0` or move either
-dist-tag manually. The successful `0.0.1` publication replaces `latest` with
+dist-tag manually. The successful `0.0.2` publication replaces `latest` with
 the functional release. Keep `bootstrap` on the deprecated namespace artifact.
 
 ## Qualification and release sequence
@@ -66,12 +68,12 @@ the functional release. Keep `bootstrap` on the deprecated namespace artifact.
    qualification attestation repeats the exact source/artifact bindings and
    hashes the canonical qualification object without its own hash field.
 5. While `RELEASE.json` is the only untracked file, run the read-only release
-   verifier with `--pre-tag`, `--tag v0.0.1`, and the exact artifact, package
+   verifier with `--pre-tag`, `--tag v0.0.2`, and the exact artifact, package
    report, Ubuntu run, and Ubuntu report paths. Pre-tag mode waives only the
    absent tag topology; every content and evidence binding must pass.
 6. Commit only `RELEASE.json` on top of the qualified source commit. The commit
    must have exactly that source commit as its sole parent.
-7. Create the annotated tag `v0.0.1` at the manifest-only commit and push that
+7. Create the annotated tag `v0.0.2` at the manifest-only commit and push that
    immutable tag. Do not use a lightweight tag and never move or overwrite the
    tag.
 8. The publish workflow validates tag topology and `RELEASE.json`, queries the
@@ -84,7 +86,7 @@ the functional release. Keep `bootstrap` on the deprecated namespace artifact.
    B004 operator record. The protected job downloads that one current-run
    artifact, recomputes both digests, and publishes exactly the tarball with npm
    provenance.
-11. Confirm the published package metadata, `latest: 0.0.1`, retained
+11. Confirm the published package metadata, `latest: 0.0.2`, retained
     `bootstrap: 0.0.0`, and installed `millwright --version` before creating
     any GitHub release notes.
 
@@ -98,7 +100,7 @@ then approve the new run's handoff. Never reuse an expired artifact.
 A failed or rejected publish does not change source, `RELEASE.json`, or the
 tag. If the failure is transient and no source correction is required, rerun
 the same immutable tag and approve only after the complete verification job
-passes again. If source must change, leave `v0.0.1` untouched and prepare a new
+passes again. If source must change, leave `v0.0.2` untouched and prepare a new
 version with a new qualification record and tag. Never replace an npm version,
 rewrite the manifest commit, or force-move a published tag.
 
@@ -117,4 +119,4 @@ Refreshes are deliberate source imports, not automatic merges:
    current downstream or bypass exact-artifact review.
 
 Native Millrace runner mode and external persistent-environment hosting are
-outside the `0.0.1` release process.
+outside the `0.0.2` release process.

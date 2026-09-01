@@ -34,13 +34,13 @@ function qualificationWriterFixture(fixture, mutateInstalled) {
 	const pack = {
 		sourceCommit,
 		source: { dirty: false, status: [], trackedSourceManifestSha256: "c".repeat(64) },
-		artifact: { filename: "millwright-agent-0.0.1.tgz", sha256: artifactSha256, integrity },
+		artifact: { filename: "millwright-agent-0.0.2.tgz", sha256: artifactSha256, integrity },
 	};
 	const verified = { sourceCommit, sha256: artifactSha256, integrity };
 	const zeroClassifications = () => Object.fromEntries(CLASSIFICATION_KEYS.map((key) => [key, 0]));
 	const recordDetails = (id) => {
 		if (id === "help") return { product: "Millwright" };
-		if (id === "version") return { product: "Millwright", version: "0.0.1" };
+		if (id === "version") return { product: "Millwright", version: "0.0.2" };
 		if (id === "tui") return { realPty: true, timingEnabled: true, initialized: true, readiness: "interactiveMode.init", startupBenchmark: true, offline: true, noSession: true, legacyUnchanged: true };
 		if (id === "configState") return { product: "Millwright", packageName: "millwright-agent", command: "millwright", agentRootMatches: true, freshAutoRefine: false, entrypoints: ["dist/config.js", "dist/core/settings-manager.js"], legacyUnchanged: true };
 		if (id === "sessionState") return { persisted: true, sessionRootMatches: true, entries: 1, entrypoints: ["dist/core/session-manager.js"], legacyUnchanged: true };
@@ -71,7 +71,7 @@ function qualificationWriterFixture(fixture, mutateInstalled) {
 	const installed = {
 		schemaVersion: 1,
 		sourceCommit,
-		artifact: { filename: "millwright-agent-0.0.1.tgz", sha256: artifactSha256, integrity },
+		artifact: { filename: "millwright-agent-0.0.2.tgz", sha256: artifactSha256, integrity },
 		toolchain: { node: "22.22.0", npm: "10.9.2" },
 		platform: { os: "linux", release: "6.11.0", arch: "x64" },
 		records: REPORT_IDS.map((id) => ({
@@ -189,7 +189,7 @@ test("ordinary macOS and Ubuntu CI qualify the verified installed artifact witho
 	assert.equal(packageIndex >= 0 && installedIndex > packageIndex, true);
 	const installed = job.steps[installedIndex];
 	assert.match(installed.run, /node scripts\/qualify-installed-millwright\.mjs/u);
-	assert.match(installed.run, /--tarball "\$RUNNER_TEMP\/millwright-pack\/millwright-agent-0\.0\.1\.tgz"/u);
+	assert.match(installed.run, /--tarball "\$RUNNER_TEMP\/millwright-pack\/millwright-agent-0\.0\.2\.tgz"/u);
 	assert.match(installed.run, /--source-commit "\$GITHUB_SHA"/u);
 	assert.match(installed.run, /--temporary-root "\$RUNNER_TEMP\/millwright-installed\/driver-temp"/u);
 	assert.match(installed.run, /--results "\$RUNNER_TEMP\/millwright-installed\/installed-driver"/u);
@@ -240,7 +240,7 @@ test("publication is exact-tag, exact-artifact, minimal-permission, and approval
 	assert.equal(verify.environment, undefined);
 	const verifyText = stepText(verify);
 	for (const required of [
-		"v0.0.1",
+		"v0.0.2",
 		"verify-millwright-release.mjs",
 		"verify-millwright-package.mjs",
 		"actions/upload-artifact@v4",

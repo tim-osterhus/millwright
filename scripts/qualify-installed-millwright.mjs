@@ -48,7 +48,7 @@ export const DAEMON_CASE_IDS = [
 ];
 
 const PUBLIC_NAME = "millwright-agent";
-const PUBLIC_VERSION = "0.0.1";
+const PUBLIC_VERSION = "0.0.2";
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const TUI_TIMEOUT_MS = 30_000;
 const LAUNCHER_PRINT_COMMAND = "/goal status";
@@ -1294,7 +1294,7 @@ async function qualify(options, substitutions = {}) {
 				assertCommand(result, `installed ${id}`);
 				const output = `${result.stdout}\n${result.stderr}`;
 				if (id === "help" && !/millwright/iu.test(output)) fail("Installed help is not Millwright-branded");
-				if (id === "version" && !output.includes(PUBLIC_VERSION)) fail("Installed version is not 0.0.1");
+				if (id === "version" && !output.includes(PUBLIC_VERSION)) fail("Installed version is not 0.0.2");
 				commandOutput += output;
 				return { stdout: result.stdout, stderr: result.stderr, exitCode: result.code, details: { product: "Millwright", ...(id === "version" ? { version: PUBLIC_VERSION } : {}) } };
 			}, redaction);

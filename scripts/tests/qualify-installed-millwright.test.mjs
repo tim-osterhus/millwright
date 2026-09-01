@@ -56,7 +56,7 @@ const readRegistry = () => { try { return JSON.parse(readFileSync(registry, "utf
 const processGroup = (pid) => { const value = spawnSync("ps", ["-p", String(pid), "-o", "pgid="], { encoding: "utf8" }); return Number.parseInt(value.stdout.trim(), 10); };
 
 if (args.includes("--help")) { console.log("Millwright fixture help"); process.exit(0); }
-if (args.includes("--version")) { console.log("0.0.1"); process.exit(0); }
+if (args.includes("--version")) { console.log("0.0.2"); process.exit(0); }
 
 if (args[0] === "--mode" && args[1] === "daemon") {
 	const socketPath = value("--daemon-socket");
@@ -203,7 +203,7 @@ function createFixtureTarball(outer, { artifactMarker = false, forceFailure, ove
 		join(packageRoot, "package.json"),
 		`${JSON.stringify({
 			name: "millwright-agent",
-			version: "0.0.1",
+			version: "0.0.2",
 			type: "module",
 			bin: { millwright: "dist/cli.js" },
 			files: ["dist", "docs", "examples", "skills", "README.md", "PROVENANCE.json"],
@@ -233,7 +233,7 @@ function createFixtureTarball(outer, { artifactMarker = false, forceFailure, ove
 		env: { ...process.env, npm_config_audit: "false", npm_config_fund: "false" },
 	});
 	assert.equal(packed.status, 0, packed.stderr || packed.stdout);
-	const tarball = join(output, "millwright-agent-0.0.1.tgz");
+	const tarball = join(output, "millwright-agent-0.0.2.tgz");
 	fixtureOptions.set(tarball, { forceFailure, oversizedIdentity });
 	return tarball;
 }
@@ -306,7 +306,7 @@ function stopFixtureProcess(pid) {
 test("parses the exact four-option interface and rejects unsafe or existing owned roots", () => {
 	const outer = tempRoot();
 	try {
-		const tarball = join(outer, "millwright-agent-0.0.1.tgz");
+		const tarball = join(outer, "millwright-agent-0.0.2.tgz");
 		writeFileSync(tarball, "fixture");
 		const temporaryRoot = join(outer, "driver-temp");
 		const results = join(outer, "driver-results");
@@ -342,7 +342,7 @@ test("parses the exact four-option interface and rejects unsafe or existing owne
 test("accepts ordinary macOS tmpdir paths through only the fixed system var alias", { skip: process.platform !== "darwin" }, () => {
 	const outer = mkdtempSync(join(tmpdir(), "millwright-c002-raw-tmpdir-"));
 	try {
-		const tarball = join(outer, "millwright-agent-0.0.1.tgz");
+		const tarball = join(outer, "millwright-agent-0.0.2.tgz");
 		writeFileSync(tarball, "fixture");
 		const temporaryRoot = join(outer, "driver-temp");
 		const results = join(outer, "driver-results");
@@ -361,7 +361,7 @@ test("rejects symlink-parent escapes before creating or deleting anything", () =
 	const outer = tempRoot();
 	const elsewhere = tempRoot("millwright-c002-symlink-target-");
 	try {
-		const tarball = join(outer, "millwright-agent-0.0.1.tgz");
+		const tarball = join(outer, "millwright-agent-0.0.2.tgz");
 		writeFileSync(tarball, "fixture");
 		symlinkSync(elsewhere, join(outer, "escape"), "dir");
 		assert.throws(() => parseQualificationArgs([
@@ -788,7 +788,7 @@ test("packs the clean accepted source once and qualifies only the real installed
 		const results = join(outer, "real-driver-results");
 		const qualified = spawnSync(process.execPath, [
 			driver,
-			"--tarball", join(pack, "millwright-agent-0.0.1.tgz"),
+			"--tarball", join(pack, "millwright-agent-0.0.2.tgz"),
 			"--source-commit", commit,
 			"--temporary-root", temporaryRoot,
 			"--results", results,

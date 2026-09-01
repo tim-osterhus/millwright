@@ -22,7 +22,7 @@ function runNpm(args, cwd = root) {
 async function pack(output) {
 	const result = runNpm(["run", "pack:release", "--", "--output", output]);
 	assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-	return join(output, "millwright-agent-0.0.1.tgz");
+	return join(output, "millwright-agent-0.0.2.tgz");
 }
 
 function verify(path, ...extra) {
@@ -108,7 +108,7 @@ test("verifier reports stable closure, provenance, licenses, and dependency inve
 		assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 		const report = JSON.parse(result.stdout);
 		assert.equal(report.package.name, "millwright-agent");
-		assert.equal(report.package.version, "0.0.1");
+		assert.equal(report.package.version, "0.0.2");
 		assert.equal(report.provenance.schemaVersion, 1);
 		assert.equal(report.provenance.packerVersion, "millwright-release-packer/1");
 		assert.match(report.provenance.trackedSourceManifestSha256, /^[0-9a-f]{64}$/);
@@ -199,7 +199,7 @@ test("verifier rejects missing closure files, metadata, notices, versions, and c
 		for (const [label, mutate] of cases) {
 			const caseDir = mkdtempSync(join(output, `${label.replaceAll(" ", "-")}-`));
 			try {
-				const mutated = join(caseDir, "millwright-agent-0.0.1.tgz");
+				const mutated = join(caseDir, "millwright-agent-0.0.2.tgz");
 				writeMutatedTarball(tarball, mutated, mutate);
 				const result = verify(mutated);
 				assert.notEqual(result.status, 0, `${label} must be rejected`);

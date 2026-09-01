@@ -96,7 +96,7 @@ function assertRecordDetails(id, details) {
 	}
 	if (id === "version") {
 		assertExactKeys(details, ["product", "version"], "version details");
-		if (details.product !== "Millwright" || details.version !== "0.0.1") fail("installed version identity is invalid");
+		if (details.product !== "Millwright" || details.version !== "0.0.2") fail("installed version identity is invalid");
 		return;
 	}
 	if (id === "tui") {
@@ -201,7 +201,7 @@ function validateInstalledQualification(installed, verified, expectedSha256) {
 	if (!installed || typeof installed !== "object" || Array.isArray(installed)) fail("installed report must be an object");
 	if (installed.schemaVersion !== 1) fail("installed report schemaVersion must be 1");
 	if (installed.sourceCommit !== verified.sourceCommit) fail("installed report source commit disagrees with verifier");
-	if (installed.artifact?.filename !== "millwright-agent-0.0.1.tgz" || installed.artifact?.sha256 !== verified.sha256 || installed.artifact?.integrity !== verified.integrity) fail("installed report artifact disagrees with verifier");
+	if (installed.artifact?.filename !== "millwright-agent-0.0.2.tgz" || installed.artifact?.sha256 !== verified.sha256 || installed.artifact?.integrity !== verified.integrity) fail("installed report artifact disagrees with verifier");
 	if (installed.platform?.os !== "linux" || typeof installed.platform?.release !== "string" || !installed.platform.release || typeof installed.platform?.arch !== "string" || !installed.platform.arch) fail("installed report platform must be bounded Ubuntu identity");
 	if (installed.toolchain?.node !== "22.22.0" || installed.toolchain?.npm !== "10.9.2") fail("installed report toolchain is not frozen");
 	if (!Array.isArray(installed.records) || installed.records.length !== INSTALLED_RECORD_IDS.length) fail("installed report must contain exactly twelve records");
