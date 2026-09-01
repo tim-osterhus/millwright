@@ -1,0 +1,59 @@
+{
+	"artifactFile": "millwright-agent-0.0.1.tgz",
+	"artifactSha256": "f7f3f1265e2bf7af411f2268328db6a6e05bb6b9145c309e7f7919dbbfcdecce",
+	"npmIntegrity": "sha512-r5cCTXCsHLonnO/MGopMN5/NdNf3oe4assxgHLkSCB/nAV+00T0opJFgXsp6iMQCRBGKa9CB6+EquFmJgn/mlg==",
+	"product": "millwright-agent",
+	"qualification": {
+		"artifactSha256": "f7f3f1265e2bf7af411f2268328db6a6e05bb6b9145c309e7f7919dbbfcdecce",
+		"attestationSha256": "46b7a735d482ec23ede673e4eb3b096a901a521d44ecd7050c9e6b41194d0302",
+		"decision": "approved",
+		"platformRuns": [
+			{
+				"artifactSha256": "f7f3f1265e2bf7af411f2268328db6a6e05bb6b9145c309e7f7919dbbfcdecce",
+				"commit": "dfae2452fb93f9f3e82bae394bfcc97dcd6f85dd",
+				"kind": "local",
+				"platform": "macos",
+				"reportSha256": "5d145d99d26405ce2205c18de6fca402d030909c6975fb55e1de52af9448c09c"
+			},
+			{
+				"artifactSha256": "f7f3f1265e2bf7af411f2268328db6a6e05bb6b9145c309e7f7919dbbfcdecce",
+				"commit": "dfae2452fb93f9f3e82bae394bfcc97dcd6f85dd",
+				"kind": "github-actions",
+				"platform": "ubuntu",
+				"reportArtifactName": "millwright-qualification-ubuntu-dfae2452fb93f9f3e82bae394bfcc97dcd6f85dd-33507163641-2",
+				"reportFile": "qualification-report.json",
+				"reportSha256": "eb2baaf95928c9984e9cb628cca1a2a34913525c7df4c0ce1b2b0890619008ed",
+				"repository": "tim-osterhus/millwright",
+				"runAttempt": 2,
+				"runId": "33507163641"
+			}
+		],
+		"reviews": [
+			{
+				"reportSha256": "cdc9425570abb4d74d398de8521a3183d3a7fb589af4f06dee0071dc363da9ac",
+				"role": "spec-conformance",
+				"verdict": "APPROVE-WITH-NONBLOCKING-NOTES"
+			},
+			{
+				"reportSha256": "f9a3bdf3f125a009ba18032c6018c5af381b8dc121906ee6de855631ffdfbd43",
+				"role": "package-code-quality",
+				"verdict": "APPROVE-WITH-NONBLOCKING-NOTES"
+			},
+			{
+				"reportSha256": "aa2111c5262a0bd644dcd8589f2bf8eb74b3976c4a020b1799142e579508ace9",
+				"role": "stateful-adversarial",
+				"verdict": "APPROVE-WITH-NONBLOCKING-NOTES"
+			}
+		],
+		"sourceCommit": "dfae2452fb93f9f3e82bae394bfcc97dcd6f85dd"
+	},
+	"schemaVersion": 1,
+	"sourceCommit": "dfae2452fb93f9f3e82bae394bfcc97dcd6f85dd",
+	"sourceTreeSha256": "9e589d4de0e57cd57ede42c849b5f206c53a4c21111614bf230e83fa3891e95d",
+	"upstream": {
+		"commit": "9f9501146e869466acaca66dac49cff857b7b4f9",
+		"product": "Prime Agent",
+		"version": "0.7.2"
+	},
+	"version": "0.0.1"
+}
