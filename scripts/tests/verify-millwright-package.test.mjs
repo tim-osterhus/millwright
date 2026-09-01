@@ -123,6 +123,8 @@ test("verifier reports stable closure, provenance, licenses, and dependency inve
 		assert.ok(report.dependencies["@agentclientprotocol/sdk"]);
 		assert.equal(report.unpackedFiles.some(({ path }) => path.split("/").includes("__pycache__") || /\.py[co]$/u.test(path)), false);
 		assert.equal(report.installSmoke.status, "passed");
+		assert.equal(report.installSmoke.lifecycleScripts, "enabled");
+		assert.equal(report.installSmoke.dependencyTreeClean, true);
 		assert.equal(report.publicIdentity.unclassified.length, 0);
 		assert.ok(report.publicIdentity.hitCount > 0);
 		assert.ok(report.publicIdentity.files.includes("README.md"));

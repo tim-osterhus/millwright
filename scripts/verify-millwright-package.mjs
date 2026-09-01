@@ -9,7 +9,6 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
-	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -468,36 +467,53 @@ async function installSmoke(tarball, manifest) {
 	const smokeRoot = mkdtempSync(join(tmpdir(), "millwright-package-smoke-"));
 	const home = join(smokeRoot, "home");
 	const cache = join(smokeRoot, "npm-cache");
-	const project = join(smokeRoot, "project");
+	const prefix = join(smokeRoot, "prefix");
 	mkdirSync(home, { recursive: true });
 	mkdirSync(cache, { recursive: true });
-	mkdirSync(project, { recursive: true });
-	writeFileSync(join(project, "package.json"), `${JSON.stringify({ name: "millwright-smoke-project", version: "1.0.0", private: true })}\n`);
+	mkdirSync(prefix, { recursive: true });
 	try {
-		const env = { HOME: home, USERPROFILE: home, npm_config_cache: cache, MILLWRIGHT_OFFLINE: "1" };
-		const install = runNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", tarball], project, env);
+		const env = {
+			HOME: home,
+			USERPROFILE: home,
+			npm_config_cache: cache,
+			npm_config_ignore_scripts: "false",
+			npm_config_registry: "https://registry.npmjs.org/",
+			MILLWRIGHT_OFFLINE: "1",
+		};
+		const install = runNpm(["install", "--global", "--prefix", prefix, "--no-audit", "--no-fund", tarball], smokeRoot, env);
 		const installLog = `${install.stdout || ""}\n${install.stderr || ""}`;
 		if (install.status !== 0) fail(`Isolated npm install failed: ${installLog.trim()}`);
 		if (/(?:prime-agent-(?:ai|core|tui)|@earendil-works\/pi-coding-agent)/iu.test(installLog)) fail("Isolated install attempted an unpublished branded package");
-		const installed = join(project, "node_modules", PUBLIC_NAME);
+		const dependencyTree = runNpm(["ls", "--global", "--all", "--json", "--prefix", prefix], smokeRoot, env);
+		if (dependencyTree.status !== 0) fail(`Installed dependency tree is invalid: ${(dependencyTree.stderr || dependencyTree.stdout || "").trim()}`);
+		let dependencyTreeReport;
+		try { dependencyTreeReport = JSON.parse(dependencyTree.stdout); } catch { fail("Installed dependency tree did not return JSON"); }
+		if (Array.isArray(dependencyTreeReport.problems) && dependencyTreeReport.problems.length > 0) {
+			fail(`Installed dependency tree reports problems: ${JSON.stringify(dependencyTreeReport.problems)}`);
+		}
+		const installed = process.platform === "win32"
+			? join(prefix, "node_modules", PUBLIC_NAME)
+			: join(prefix, "lib", "node_modules", PUBLIC_NAME);
 		if (!lstatSync(installed).isDirectory()) fail("Installed public package is missing");
 		for (const name of EMBEDDED_INTERNAL_PACKAGES) {
 			const bundledPath = join(installed, "node_modules", ...name.split("/"));
 			if (!lstatSync(bundledPath).isDirectory()) fail(`Installed embedded package is missing: ${name}`);
 		}
-		const executable = join(project, "node_modules", ".bin", "millwright");
-		const help = spawnSync(executable, ["--help"], { cwd: project, env: { ...process.env, ...env, MILLWRIGHT_OFFLINE: "1" }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+		const executable = process.platform === "win32" ? join(prefix, "millwright.cmd") : join(prefix, "bin", "millwright");
+		const help = spawnSync(executable, ["--help"], { cwd: smokeRoot, env: { ...process.env, ...env, MILLWRIGHT_OFFLINE: "1" }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 		if (help.status !== 0) fail(`Installed millwright --help failed: ${help.stderr || help.stdout}`);
-		const version = spawnSync(executable, ["--version"], { cwd: project, env: { ...process.env, ...env, MILLWRIGHT_OFFLINE: "1" }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+		const version = spawnSync(executable, ["--version"], { cwd: smokeRoot, env: { ...process.env, ...env, MILLWRIGHT_OFFLINE: "1" }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 		if (version.status !== 0) fail(`Installed millwright --version failed: ${version.stderr || version.stdout}`);
 		const helpText = `${help.stdout || ""}\n${help.stderr || ""}`.toLowerCase();
 		if (!helpText.includes("millwright")) fail(`Installed help output is not Millwright-branded: ${help.stdout || help.stderr}`);
 		if (!`${version.stdout || ""}\n${version.stderr || ""}`.includes(PUBLIC_VERSION)) fail(`Installed version output does not contain ${PUBLIC_VERSION}: ${version.stdout || version.stderr}`);
 		return {
 			status: "passed",
-			project: "synthetic",
+			project: "synthetic-global-prefix",
 			package: manifest.name,
 			installExitCode: install.status,
+			lifecycleScripts: "enabled",
+			dependencyTreeClean: true,
 			unpublishedBrandedFetch: false,
 			helpContainsMillwright: helpText.includes("millwright"),
 			helpContainsCommand: helpText.includes("millwright"),
