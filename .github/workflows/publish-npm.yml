@@ -23,6 +23,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Restore annotated release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force --no-tags origin \
+            "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          test "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = "tag"
+          test "$(git rev-list -n 1 "refs/tags/$GITHUB_REF_NAME")" = "$GITHUB_SHA"
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

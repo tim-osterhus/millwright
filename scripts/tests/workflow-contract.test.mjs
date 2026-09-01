@@ -267,6 +267,23 @@ test("publication is exact-tag, exact-artifact, minimal-permission, and approval
 	assert.doesNotMatch(publishText, /npm (?:pack|run build|version)|git (?:commit|tag|push)/u);
 });
 
+test("release workflow restores the runner-local annotated tag immediately after checkout", () => {
+	const value = workflow(".github/workflows/publish-npm.yml");
+	const steps = value.jobs.verify.steps;
+	const checkoutIndex = steps.findIndex((step) => step.name === "Check out annotated tag");
+	const restoreIndex = steps.findIndex((step) => step.name === "Restore annotated release tag");
+	assert.notEqual(checkoutIndex, -1);
+	assert.equal(restoreIndex, checkoutIndex + 1);
+	const restore = steps[restoreIndex];
+	assert.equal(restore.shell, "bash");
+	assert.match(restore.run, /git fetch --force --no-tags origin/u);
+	assert.match(restore.run, /refs\/tags\/\$GITHUB_REF_NAME:refs\/tags\/\$GITHUB_REF_NAME/u);
+	assert.match(restore.run, /git cat-file -t "refs\/tags\/\$GITHUB_REF_NAME"/u);
+	assert.match(restore.run, /git rev-list -n 1 "refs\/tags\/\$GITHUB_REF_NAME"/u);
+	assert.match(restore.run, /\$GITHUB_SHA/u);
+	assert.doesNotMatch(restore.run, /git (?:push|tag)|gh /u);
+});
+
 test("root scripts and source workspaces expose no local release mutator", () => {
 	const rootManifest = JSON.parse(read("package.json"));
 	const scripts = rootManifest.scripts || {};
