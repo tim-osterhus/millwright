@@ -1,6 +1,17 @@
 # Changelog
 
-## 0.0.2 - Unreleased
+## 0.0.3 - Unreleased
+
+- Correct the public npm artifact so the three private internal packages remain
+  embedded without falsely declaring their external dependency trees as npm
+  bundled dependencies.
+- Require a clean-cache normal npm lifecycle installation during package
+  verification instead of masking dependency lifecycle failures with
+  `--ignore-scripts`.
+- Preserve the exact v0.0.2 product behavior; this patch changes packaging and
+  release verification only.
+
+## 0.0.2 - Published, install broken
 
 - Established Millwright as an independent Prime Agent 0.7.2 downstream under
   Apache-2.0 for new work while retaining the upstream MIT license chain.
@@ -17,6 +28,10 @@
 - Restored the annotated event tag immediately after GitHub checkout so release
   topology verification sees the immutable tag object rather than only its
   peeled commit.
+
+The release was published with valid provenance, but normal npm installation
+fails because its `bundledDependencies` metadata describes a recursive closure
+that the artifact does not contain. Use `0.0.3` or newer.
 
 This release does not include native Millrace runner mode, the external
 persistent-environment host, provider-native compaction, or proposal-handling

@@ -83,7 +83,7 @@ function createFixture(options = {}) {
 	git(repo, "commit", "-qm", "qualified source");
 	const sourceCommit = git(repo, "rev-parse", "HEAD");
 	const sourceTree = sourceTreeSha256(repo, sourceCommit);
-	const artifactFile = "millwright-agent-0.0.2.tgz";
+	const artifactFile = "millwright-agent-0.0.3.tgz";
 	const artifact = Buffer.from(options.artifactBytes || "qualified artifact\n");
 	const artifactPath = join(evidence, artifactFile);
 	writeFileSync(artifactPath, artifact);
@@ -119,13 +119,13 @@ function createFixture(options = {}) {
 	writeCanonical(ubuntuRunPath, ubuntuRun);
 	const packageReport = {
 		schemaVersion: 1,
-		package: { name: "millwright-agent", version: "0.0.2" },
+		package: { name: "millwright-agent", version: "0.0.3" },
 		sha256: artifactSha256,
 		integrity: npmIntegrity,
 		sourceCommit,
 		provenance: {
 			schemaVersion: 1,
-			millwrightVersion: "0.0.2",
+			millwrightVersion: "0.0.3",
 			packerVersion: "millwright-release-packer/1",
 			sourceCommit,
 			trackedSourceManifestSha256: sourceTree,
@@ -162,7 +162,7 @@ function createFixture(options = {}) {
 	const release = {
 		schemaVersion: 1,
 		product: "millwright-agent",
-		version: "0.0.2",
+		version: "0.0.3",
 		sourceCommit,
 		sourceTreeSha256: sourceTree,
 		artifactFile,
@@ -179,12 +179,12 @@ function createFixture(options = {}) {
 	if (options.tamperAttestation) release.qualification.attestationSha256 = "0".repeat(64);
 	writeCanonical(join(repo, "RELEASE.json"), release);
 	if (options.extraTagFile) writeFileSync(join(repo, "extra.txt"), "not manifest-only\n");
-	const tag = options.tag || "v0.0.2";
+	const tag = options.tag || "v0.0.3";
 	if (!options.preTag) {
 		git(repo, "add", ".");
 		git(repo, "commit", "-qm", "release manifest");
 		if (options.lightweightTag) git(repo, "tag", tag);
-		else git(repo, "tag", "-am", "Millwright v0.0.2", tag);
+		else git(repo, "tag", "-am", "Millwright v0.0.3", tag);
 		if (options.rewriteReleaseAfterTag) {
 			release.fixtureOnlySubstitution = true;
 			writeCanonical(join(repo, "RELEASE.json"), release);
@@ -222,7 +222,7 @@ test("release verifier accepts the exact frozen manifest, tag, artifact, and qua
 		assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 		const report = JSON.parse(result.stdout);
 		assert.equal(report.verified, true);
-		assert.equal(report.releaseTag, "v0.0.2");
+		assert.equal(report.releaseTag, "v0.0.3");
 		assert.equal(report.artifactSha256, sha256(readFileSync(fixture.artifactPath)));
 	} finally {
 		rmSync(fixture.root, { recursive: true, force: true });

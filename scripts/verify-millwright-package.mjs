@@ -19,7 +19,7 @@ import { gunzipSync } from "node:zlib";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PACKER_VERSION = "millwright-release-packer/1";
 const PUBLIC_NAME = "millwright-agent";
-const PUBLIC_VERSION = "0.0.2";
+const PUBLIC_VERSION = "0.0.3";
 const TAR_MTIME = 499162500;
 const BUNDLED = [
 	"@earendil-works/pi-agent-core",
@@ -56,7 +56,7 @@ function parseArgs(args) {
 			expectedCommit = args[++index];
 			if (!expectedCommit) fail("--source-commit requires a value");
 		} else if (arg === "--help" || arg === "-h") {
-			console.log("Usage: node scripts/verify-millwright-package.mjs /absolute/path/millwright-agent-0.0.2.tgz [source-commit]");
+			console.log("Usage: node scripts/verify-millwright-package.mjs /absolute/path/millwright-agent-0.0.3.tgz [source-commit]");
 			process.exit(0);
 		} else if (arg.startsWith("-")) {
 			fail(`Unknown argument: ${arg}`);

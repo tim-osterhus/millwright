@@ -106,7 +106,7 @@ jobs:
         run: |
           set -o pipefail
           node scripts/verify-millwright-package.mjs \
-            "$RUNNER_TEMP/millwright-pack/millwright-agent-0.0.2.tgz" \
+            "$RUNNER_TEMP/millwright-pack/millwright-agent-0.0.3.tgz" \
             "$GITHUB_SHA" \
             | tee "$RUNNER_TEMP/millwright-pack/package-report.json" \
             | tee "$RUNNER_TEMP/installSmoke.log"
@@ -119,7 +119,7 @@ jobs:
           set -euo pipefail
           mkdir "$RUNNER_TEMP/millwright-installed"
           node scripts/qualify-installed-millwright.mjs \
-            --tarball "$RUNNER_TEMP/millwright-pack/millwright-agent-0.0.2.tgz" \
+            --tarball "$RUNNER_TEMP/millwright-pack/millwright-agent-0.0.3.tgz" \
             --source-commit "$GITHUB_SHA" \
             --temporary-root "$RUNNER_TEMP/millwright-installed/driver-temp" \
             --results "$RUNNER_TEMP/millwright-installed/installed-driver"

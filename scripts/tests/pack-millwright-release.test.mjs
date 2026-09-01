@@ -41,9 +41,9 @@ async function pack(output) {
 	const result = runNpm(["run", "pack:release", "--", "--output", output]);
 	assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 	const files = readdirSync(output).sort();
-	assert.deepEqual(files.filter((file) => file.endsWith(".tgz")), ["millwright-agent-0.0.2.tgz"]);
+	assert.deepEqual(files.filter((file) => file.endsWith(".tgz")), ["millwright-agent-0.0.3.tgz"]);
 	assert.deepEqual(files.filter((file) => file.endsWith(".json")), ["pack-report.json"]);
-	return join(output, "millwright-agent-0.0.2.tgz");
+	return join(output, "millwright-agent-0.0.3.tgz");
 }
 
 function readTar(tarball) {
@@ -144,7 +144,7 @@ test("packs one frozen public artifact with closure and deterministic headers", 
 		const files = fileMap(tarball);
 		const manifest = JSON.parse(files.get("package/package.json"));
 		assert.equal(manifest.name, "millwright-agent");
-		assert.equal(manifest.version, "0.0.2");
+		assert.equal(manifest.version, "0.0.3");
 		assert.deepEqual(manifest.bin, { millwright: "dist/bundle/cli.js" });
 		assert.deepEqual(manifest.bundledDependencies, [
 			"@earendil-works/pi-agent-core",
@@ -168,7 +168,7 @@ test("packs one frozen public artifact with closure and deterministic headers", 
 		]) assert.ok(files.has(path), `missing ${path}`);
 		assert.match(files.get("package/README.md").toString("utf8"), /^# Millwright$/mu);
 		assert.doesNotMatch(files.get("package/README.md").toString("utf8"), /Prime Agent CLI/u);
-		assert.match(files.get("package/CHANGELOG.md").toString("utf8"), /## 0\.0\.2 - Unreleased/u);
+		assert.match(files.get("package/CHANGELOG.md").toString("utf8"), /## 0\.0\.3 - Unreleased/u);
 		for (const name of manifest.bundledDependencies) {
 			assert.ok(files.has(`package/node_modules/${name}/package.json`));
 			assert.ok([...files.keys()].some((path) => path.startsWith(`package/node_modules/${name}/dist/`)));

@@ -56,9 +56,9 @@ The stable `latest.json` and beta `beta.json` manifests use the same JSON shape:
 
 ```json
 {
-  "version": "0.0.2",
+  "version": "0.0.3",
   "package": "millwright-agent",
-  "tarball": "releases/v0.0.2/millwright-agent-0.0.2.tgz"
+  "tarball": "releases/v0.0.3/millwright-agent-0.0.3.tgz"
 }
 ```
 

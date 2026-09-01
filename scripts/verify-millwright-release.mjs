@@ -6,9 +6,9 @@ import { lstatSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
 const PRODUCT = "millwright-agent";
-const VERSION = "0.0.2";
-const TAG = "v0.0.2";
-const ARTIFACT = "millwright-agent-0.0.2.tgz";
+const VERSION = "0.0.3";
+const TAG = "v0.0.3";
+const ARTIFACT = "millwright-agent-0.0.3.tgz";
 const NODE_VERSION = "22.22.0";
 const NPM_VERSION = "10.9.2";
 const UV_VERSION = "0.12.6";

@@ -1,6 +1,6 @@
 # Millwright
 
-Millwright is a Prime Agent-derived interactive agent harness. Version `0.0.2`
+Millwright is a Prime Agent-derived interactive agent harness. Version `0.0.3`
 preserves the upstream TUI and persistent Python-backed working environment
 while establishing independent product identity, state isolation, and one
 reproducible npm artifact.
@@ -9,14 +9,14 @@ This repository starts from the complete upstream 0.7.2 source rather than a
 thin wrapper or a package-by-package reimplementation. The goal is to preserve
 the upstream interactive TUI, persistent RLM environment, compaction,
 extensions, and session behavior. Native Millrace runner mode is future work,
-not part of the `0.0.2` contract.
+not part of the `0.0.3` contract.
 
-> **Status:** The `0.0.2` source and release plumbing are being qualified.
-> `millwright-agent` has not yet been published. Retained upstream package keys
-> are private implementation details inside the single public artifact.
-> The immutable `v0.0.1` tag remains as release-history evidence, but its npm
-> publication never occurred because the publish checkout lost the annotated
-> tag object before topology verification.
+> **Status:** `millwright-agent@0.0.2` was published with valid provenance, but
+> its normal npm install is broken by incomplete recursive bundle metadata.
+> Version `0.0.3` corrects that package shape and requires a normal lifecycle
+> install during qualification. Retained upstream package keys are private
+> implementation details inside the single public artifact. The immutable
+> `v0.0.1` and `v0.0.2` tags remain release-history evidence.
 
 - Target repository: `github.com/tim-osterhus/millwright`
 - Intended npm distribution: `millwright-agent`
@@ -88,10 +88,10 @@ Future work may add a restricted headless Millrace runner and attach long-lived
 Python environments through a separately versioned workspace-local host.
 Millrace will remain responsible for compiled workflow authority, dispatch,
 terminal legality, and evidence admission. These are explicit non-goals for
-`0.0.2`.
+`0.0.3`.
 
 Provider-native compaction and inert proposal-handling seams are likewise not
-implemented in `0.0.2`.
+implemented in `0.0.3`.
 
 ## Prime Agent provenance
 
