@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
+	mkdtempSync,
 	readdirSync,
 	readFileSync,
 	renameSync,
@@ -11,6 +12,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { createConnection } from "node:net";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENV_AGENT_DIR, getCronJobsPath } from "../../../src/config.js";
@@ -23,7 +25,6 @@ import {
 	persistDaemonStartupFenceFromOwner,
 	waitForDaemonStartupFence,
 } from "../../../src/modes/daemon/daemon-supervisor-ownership.js";
-import { createHarness, type Harness } from "../harness.js";
 
 type FixtureMessage =
 	| { type: "booted" }
@@ -76,7 +77,7 @@ const tsxPath = resolve(__dirname, "../../../../../node_modules/tsx/dist/cli.mjs
 const tsconfigPath = resolve(__dirname, "../../../../../tsconfig.json");
 const supervisorRegistryDirEnv = "PRIME_AGENT_INTERNAL_DAEMON_SUPERVISOR_REGISTRY_DIR";
 const handles = new Set<FixtureHandle>();
-const harnesses: Harness[] = [];
+const testRoots = new Set<string>();
 const cleanupProcesses = new Map<string, CleanupProcessIdentity>();
 const cleanupRegistryDirs = new Set<string>();
 const cleanupSupervisorSockets = new Set<string>();
@@ -106,9 +107,11 @@ afterEach(async () => {
 	cleanupProcesses.clear();
 	cleanupRegistryDirs.clear();
 	cleanupSupervisorSockets.clear();
-	while (harnesses.length > 0) {
-		harnesses.pop()?.cleanup();
+	for (const root of testRoots) {
+		rmSync(root, { recursive: true, force: true });
+		expect(existsSync(root)).toBe(false);
 	}
+	testRoots.clear();
 });
 
 function dispatchMessage(handle: FixtureHandle, message: FixtureMessage): void {
@@ -262,16 +265,16 @@ async function createPaths(): Promise<{
 	registryDir: string;
 	socketPath: string;
 }> {
-	const harness = await createHarness();
-	harnesses.push(harness);
+	const tempDir = mkdtempSync(join(tmpdir(), `pi-suite-${Date.now()}-`));
+	testRoots.add(tempDir);
 	return {
-		agentDir: harness.tempDir,
-		descriptorDir: join(harness.tempDir, "workers"),
-		registryDir: join(harness.tempDir, "registry"),
+		agentDir: tempDir,
+		descriptorDir: join(tempDir, "workers"),
+		registryDir: join(tempDir, "registry"),
 		socketPath:
 			process.platform === "win32"
 				? `\\\\.\\pipe\\prime-agent-eng-4600-${process.pid}-${Date.now()}`
-				: join(harness.tempDir, "daemon.sock"),
+				: join(tempDir, "daemon.sock"),
 	};
 }
 
