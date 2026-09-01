@@ -258,7 +258,7 @@ function verifyPackageReport(report, release) {
 	if (report.schemaVersion !== 1 || report.package?.name !== PRODUCT || report.package?.version !== VERSION) fail("package verifier report identity is invalid");
 	if (report.sha256 !== release.artifactSha256 || report.integrity !== release.npmIntegrity) fail("package verifier report artifact digest does not match RELEASE.json");
 	if (report.sourceCommit !== release.sourceCommit || report.provenance?.sourceCommit !== release.sourceCommit) fail("package verifier report sourceCommit does not match RELEASE.json");
-	if (report.provenance?.millwrightVersion !== VERSION || report.provenance?.packerVersion !== "millwright-release-packer/1") fail("package verifier report provenance version is invalid");
+	if (report.provenance?.millwrightVersion !== VERSION || report.provenance?.packerVersion !== "millwright-release-packer/2") fail("package verifier report provenance version is invalid");
 	if (report.provenance?.trackedSourceManifestSha256 !== release.sourceTreeSha256) fail("package verifier tracked-source digest does not match RELEASE.json");
 	if (report.provenance?.upstreamPrimeVersion !== UPSTREAM_VERSION || report.provenance?.upstreamPrimeCommit !== UPSTREAM_COMMIT) fail("package verifier upstream provenance does not match RELEASE.json");
 	assertHash(report.provenance?.stagedInputManifestSha256, "package provenance stagedInputManifestSha256");

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -74,6 +74,13 @@ function setTarSize(header, size) {
 	header.write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148, 8, "ascii");
 }
 
+function setTarPath(header, path) {
+	assert.ok(Buffer.byteLength(path) <= 100, `fixture path fits tar name field: ${path}`);
+	header.fill(0, 0, 100);
+	header.write(path, 0, 100, "utf8");
+	header.fill(0, 345, 500);
+}
+
 function writeMutatedTarball(source, destination, mutate) {
 	const records = tarRecords(source);
 	const values = new Map(records.map((record) => [record.path, record]));
@@ -105,10 +112,51 @@ function mutateJson(values, path, callback) {
 	record.data = Buffer.from(`${JSON.stringify(sortJson(value))}\n`);
 }
 
-test("verifier reports stable closure, provenance, licenses, and dependency inventory", async () => {
+test("reproduces the v0.0.2 lifecycle defect, then verifies the corrected closure", async () => {
 	const output = freshOutput();
 	try {
 		const tarball = await pack(output);
+		const legacyRoot = mkdtempSync(join(output, "v0.0.2-defect-"));
+		const legacyTarball = join(legacyRoot, "millwright-agent-0.0.2.tgz");
+		writeMutatedTarball(tarball, legacyTarball, (values) => {
+			mutateJson(values, "package.json", (value) => {
+				value.version = "0.0.2";
+				value.bundledDependencies = [...embeddedInternalPackages];
+				for (const name of embeddedInternalPackages) value.dependencies[name] = "^0.7.2";
+			});
+			const source = values.get("package/node_modules/@earendil-works/pi-ai/package.json");
+			assert.ok(source);
+			const path = "package/node_modules/protobufjs/package.json";
+			const record = {
+				path,
+				header: Buffer.from(source.header),
+				data: Buffer.from(`${JSON.stringify(sortJson({ name: "protobufjs", scripts: { postinstall: "node scripts/postinstall" }, version: "7.5.4" }))}\n`),
+			};
+			setTarPath(record.header, path);
+			values.set(path, record);
+		});
+		const home = join(legacyRoot, "home");
+		const cache = join(legacyRoot, "cache");
+		const prefix = join(legacyRoot, "prefix");
+		for (const path of [home, cache, prefix]) mkdirSync(path, { recursive: true });
+		const legacyInstall = spawnSync("npm", ["install", "--global", "--prefix", prefix, "--no-audit", "--no-fund", legacyTarball], {
+			cwd: legacyRoot,
+			encoding: "utf8",
+			env: {
+				...process.env,
+				HOME: home,
+				USERPROFILE: home,
+				MILLWRIGHT_OFFLINE: "1",
+				npm_config_audit: "false",
+				npm_config_cache: cache,
+				npm_config_fund: "false",
+				npm_config_ignore_scripts: "false",
+				npm_config_registry: "https://registry.npmjs.org/",
+				npm_config_update_notifier: "false",
+			},
+		});
+		assert.notEqual(legacyInstall.status, 0, "v0.0.2 recursive bundle topology must fail a normal lifecycle install");
+		assert.match(`${legacyInstall.stdout}\n${legacyInstall.stderr}`, /protobufjs[\s\S]*scripts\/postinstall/u);
 		const result = verify(tarball);
 		assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 		const report = JSON.parse(result.stdout);
@@ -152,6 +200,16 @@ test("verifier rejects missing closure files, metadata, notices, versions, and c
 		const tarball = await pack(output);
 		const cases = [
 			["missing embedded package", (values) => values.delete("package/node_modules/@earendil-works/pi-ai/package.json")],
+			["unexpected embedded private package", (values) => {
+				const source = values.get("package/node_modules/@earendil-works/pi-ai/package.json");
+				assert.ok(source);
+				const path = "package/node_modules/@earendil-works/pi-unexpected/package.json";
+				const manifest = JSON.parse(source.data.toString("utf8"));
+				manifest.name = "@earendil-works/pi-unexpected";
+				const record = { path, header: Buffer.from(source.header), data: Buffer.from(`${JSON.stringify(sortJson(manifest))}\n`) };
+				setTarPath(record.header, path);
+				values.set(path, record);
+			}, /Unexpected embedded private package/u],
 			["recursive bundled dependency metadata", (values) => mutateJson(values, "package.json", (value) => { value.bundledDependencies = [...embeddedInternalPackages]; })],
 			["recursive bundle dependency alias", (values) => mutateJson(values, "package.json", (value) => { value.bundleDependencies = [...embeddedInternalPackages]; })],
 			["private registry dependency", (values) => mutateJson(values, "package.json", (value) => { value.dependencies["@earendil-works/pi-ai"] = "^0.7.2"; })],
@@ -207,13 +265,14 @@ test("verifier rejects missing closure files, metadata, notices, versions, and c
 				record.data = Buffer.from(`${record.data.toString("utf8")}\nnotify("Pi", "Ready")\n`);
 			}],
 		];
-		for (const [label, mutate] of cases) {
+		for (const [label, mutate, expectedError] of cases) {
 			const caseDir = mkdtempSync(join(output, `${label.replaceAll(" ", "-")}-`));
 			try {
 				const mutated = join(caseDir, "millwright-agent-0.0.3.tgz");
 				writeMutatedTarball(tarball, mutated, mutate);
 				const result = verify(mutated);
 				assert.notEqual(result.status, 0, `${label} must be rejected`);
+				if (expectedError) assert.match(result.stderr, expectedError);
 			} finally {
 				rmSync(caseDir, { recursive: true, force: true });
 			}

@@ -126,7 +126,7 @@ function createFixture(options = {}) {
 		provenance: {
 			schemaVersion: 1,
 			millwrightVersion: "0.0.3",
-			packerVersion: "millwright-release-packer/1",
+			packerVersion: "millwright-release-packer/2",
 			sourceCommit,
 			trackedSourceManifestSha256: sourceTree,
 			stagedInputManifestSha256: "1".repeat(64),

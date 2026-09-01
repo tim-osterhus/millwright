@@ -397,6 +397,14 @@ function verifyPublicManifest(manifest, files) {
 }
 
 function verifyInternalPackages(files) {
+	const embeddedPrivatePackages = new Set();
+	for (const path of files.keys()) {
+		const match = path.match(/^package\/node_modules\/(@earendil-works\/[^/]+)\//u);
+		if (match) embeddedPrivatePackages.add(match[1]);
+	}
+	for (const name of embeddedPrivatePackages) {
+		if (!EMBEDDED_INTERNAL_SET.has(name)) fail(`Unexpected embedded private package: ${name}`);
+	}
 	const versions = new Set();
 	for (const name of EMBEDDED_INTERNAL_PACKAGES) {
 		const prefix = `package/node_modules/${name}/`;
